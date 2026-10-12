@@ -39,6 +39,11 @@ full_views_kept = 1      # how many recent observations keep their full map
 # While a player runs, record the game window and the viewer window (one video each, under the run's
 # recordings/ folder). Pausing or stopping ends the videos; resuming starts new ones. Needs ffmpeg on PATH.
 enabled = true
-fps = 10
-max_width = 1280         # videos are scaled down to at most this wide
-crf = 28                 # H.264 quality: lower = better and bigger
+fps = 30                 # the game video
+max_width = 1920         # scaled down to at most this wide (the game window itself is ~2570)
+crf = 22                 # quality: lower = sharper and bigger (18 near-lossless, 28 small and soft)
+viewer_fps = 15          # the viewer video: mostly text, so fewer frames, but sharp
+viewer_max_width = 2560  # native size, so the text stays readable
+viewer_crf = 18
+encoder = "libx264"      # or "h264_nvenc" to encode on the NVIDIA GPU (crf then means cq)
+preset = "veryfast"      # libx264 speed/size trade-off: ultrafast, veryfast, fast, medium

@@ -1,8 +1,10 @@
 """Gameplay recording: one video of the game window and one of the viewer window while a player runs.
 
-Each window is captured with PrintWindow (PW_RENDERFULLCONTENT), which works for GPU-drawn windows and
-when other windows overlap them, and is piped as raw frames to ffmpeg. Videos go to
-<run folder>/recordings/<game|viewer>_<index>_<date-time>.mp4, one per stretch of recording:
+Each window is captured by ffmpeg's `gfxcapture` source (Windows Graphics Capture, the API OBS uses for window
+capture). It runs on the GPU, works for GPU-drawn windows and when other windows overlap them, timestamps every
+frame with the real time (so playback speed is right) and keeps the window's own resolution until it is scaled
+to the configured width. Videos go to <run folder>/recordings/<game|viewer>_<index>_<date-time>.mp4, one per
+stretch of recording:
 
 - recording runs while the player is running; pause, stop or an error ends the videos, and resuming
   starts new ones (the index keeps counting across resumes);
@@ -11,7 +13,6 @@ when other windows overlap them, and is piped as raw frames to ffmpeg. Videos go
 
 The mp4 is fragmented, so a video is playable even if the process dies before ffmpeg can finish it.
 """
-import ctypes
 import os
 import re
 import shutil
@@ -19,19 +20,10 @@ import subprocess
 import threading
 import time
 
-import win32con
 import win32gui
-import win32ui
 
 GAME_TITLE = "Order of the Sinking Star"
 VIEWER_TITLE = "Sinking Star Live"      # the viewer page's <title>; browsers add their own name after it
-PW_RENDERFULLCONTENT = 2
-HALFTONE = 4
-
-try:
-    ctypes.windll.user32.SetProcessDPIAware()    # real pixel sizes, not DPI-scaled ones
-except Exception:
-    pass
 
 
 def find_game():
@@ -57,46 +49,6 @@ def usable(hwnd):
     return r - l >= 64 and b - t >= 64
 
 
-def target_size(hwnd, max_width):
-    l, t, r, b = win32gui.GetWindowRect(hwnd)
-    w = min(r - l, max_width) // 2 * 2
-    return w, round((b - t) * w / (r - l)) // 2 * 2
-
-
-def grab(hwnd, out_w, out_h):
-    """One frame of the window as BGRA bytes, scaled to out_w x out_h; None if the window is not capturable."""
-    if not usable(hwnd):
-        return None
-    l, t, r, b = win32gui.GetWindowRect(hwnd)
-    w, h = r - l, b - t
-    wdc = win32gui.GetWindowDC(hwnd)
-    src = win32ui.CreateDCFromHandle(wdc)
-    mem = src.CreateCompatibleDC()
-    bmp = win32ui.CreateBitmap()
-    small = sbmp = None
-    try:
-        bmp.CreateCompatibleBitmap(src, w, h)
-        mem.SelectObject(bmp)
-        ctypes.windll.user32.PrintWindow(hwnd, mem.GetSafeHdc(), PW_RENDERFULLCONTENT)
-        if (w, h) == (out_w, out_h):
-            return bmp.GetBitmapBits(True)
-        small = src.CreateCompatibleDC()
-        sbmp = win32ui.CreateBitmap()
-        sbmp.CreateCompatibleBitmap(src, out_w, out_h)
-        small.SelectObject(sbmp)
-        ctypes.windll.gdi32.SetStretchBltMode(small.GetSafeHdc(), HALFTONE)
-        small.StretchBlt((0, 0), (out_w, out_h), mem, (0, 0), (w, h), win32con.SRCCOPY)
-        return sbmp.GetBitmapBits(True)
-    finally:
-        win32gui.DeleteObject(bmp.GetHandle())
-        if sbmp is not None:
-            win32gui.DeleteObject(sbmp.GetHandle())
-        for dc in (small, mem, src):
-            if dc is not None:
-                dc.DeleteDC()
-        win32gui.ReleaseDC(hwnd, wdc)
-
-
 def next_path(folder, name):
     """recordings/<name>_<index>_<date-time>.mp4, the index continuing after any earlier videos."""
     os.makedirs(folder, exist_ok=True)
@@ -107,9 +59,10 @@ def next_path(folder, name):
 class WindowRecorder:
     """Records one window into one mp4 until stop() or until the window is lost."""
 
-    def __init__(self, name, find, folder, fps=10, max_width=1280, crf=28):
+    def __init__(self, name, find, folder, fps=30, max_width=1920, crf=22, encoder="libx264", preset="veryfast"):
         self.name, self.find, self.folder = name, find, folder
         self.fps, self.max_width, self.crf = fps, max_width, crf
+        self.encoder, self.preset = encoder, preset
         self.thread = None
         self.stop_flag = threading.Event()
         self.path = ""
@@ -128,41 +81,43 @@ class WindowRecorder:
     def stop(self):
         self.stop_flag.set()
         if self.thread:
-            self.thread.join(timeout=15)
+            self.thread.join(timeout=30)
+
+    def _command(self, hwnd, path):
+        source = (f"gfxcapture=hwnd={hwnd}:max_framerate={self.fps}:capture_cursor=false:resize_mode=scale_aspect,"
+                  f"hwdownload,format=bgra,scale='min({self.max_width},iw)':-2:flags=lanczos,format=yuv420p")
+        if self.encoder == "h264_nvenc":     # the GPU encoder: the same look at almost no CPU
+            codec = ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", str(self.crf), "-b:v", "0"]
+        else:
+            codec = ["-c:v", "libx264", "-preset", self.preset, "-crf", str(self.crf)]
+        return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", source,
+                "-r", str(self.fps), "-fps_mode", "cfr", *codec, "-g", str(self.fps * 2),
+                "-movflags", "+frag_keyframe+empty_moov+default_base_moof", path]
 
     def _run(self, hwnd, path):
-        w, h = target_size(hwnd, self.max_width)
-        cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra",
-               "-s", f"{w}x{h}", "-framerate", str(self.fps), "-i", "-", "-c:v", "libx264", "-preset", "veryfast",
-               "-crf", str(self.crf), "-pix_fmt", "yuv420p",
-               "-movflags", "+frag_keyframe+empty_moov+default_base_moof", path]
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        t0, written, reason = time.time(), 0, "stopped"
+        reason = "stopped"
+        proc = subprocess.Popen(self._command(hwnd, path), stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         try:
-            while not self.stop_flag.is_set():
-                frame = grab(hwnd, w, h)
-                if frame is None:
+            while not self.stop_flag.wait(0.5):
+                if proc.poll() is not None:
+                    reason = "ffmpeg stopped"
+                    break
+                if not usable(hwnd):
                     reason = "window lost"
                     break
-                # Keep the video in real time: if capturing fell behind, repeat the frame to catch up.
-                due = int((time.time() - t0) * self.fps) + 1
-                for _ in range(max(1, min(due - written, self.fps))):
-                    proc.stdin.write(frame)
-                    written += 1
-                self.stop_flag.wait(max(0.0, t0 + written / self.fps - time.time()))
-        except (BrokenPipeError, OSError):
-            reason = "ffmpeg stopped"
-        except Exception as e:           # never let a capture problem reach the player
+        except Exception as e:           # never let a recording problem reach the player
             reason = f"error: {e}"
         finally:
             try:
+                proc.stdin.write(b"q")   # ffmpeg's way to finish a video cleanly
+                proc.stdin.flush()
                 proc.stdin.close()
-                proc.wait(timeout=20)
+                proc.wait(timeout=30)
             except Exception:
                 proc.kill()
             self.ended = reason
-            if not written and os.path.exists(path):
+            if os.path.exists(path) and os.path.getsize(path) < 2048:
                 os.remove(path)          # nothing was recorded
 
 
@@ -172,10 +127,13 @@ class RunRecorder:
     def __init__(self, run_dir, cfg=None):
         cfg = cfg or {}
         folder = os.path.join(run_dir, "recordings")
-        opts = {"fps": int(cfg.get("fps", 10)), "max_width": int(cfg.get("max_width", 1280)),
-                "crf": int(cfg.get("crf", 28))}
-        self.streams = {"game": WindowRecorder("game", find_game, folder, **opts),
-                        "viewer": WindowRecorder("viewer", find_viewer, folder, **opts)}
+        common = {"encoder": cfg.get("encoder", "libx264"), "preset": cfg.get("preset", "veryfast")}
+        game = {"fps": int(cfg.get("fps", 30)), "max_width": int(cfg.get("max_width", 1920)),
+                "crf": int(cfg.get("crf", 22)), **common}
+        viewer = {"fps": int(cfg.get("viewer_fps", 15)), "max_width": int(cfg.get("viewer_max_width", 2560)),
+                  "crf": int(cfg.get("viewer_crf", 18)), **common}     # text needs native size and a low crf
+        self.streams = {"game": WindowRecorder("game", find_game, folder, **game),
+                        "viewer": WindowRecorder("viewer", find_viewer, folder, **viewer)}
         self.active = False
         self.error = "" if shutil.which("ffmpeg") else "ffmpeg not found: recording is off"
         self.thread = None
@@ -192,7 +150,7 @@ class RunRecorder:
         for s in self.streams.values():
             s.stop()
         if self.thread:
-            self.thread.join(timeout=20)
+            self.thread.join(timeout=30)
 
     def _supervise(self):
         while self.active:
