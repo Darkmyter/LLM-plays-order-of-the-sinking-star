@@ -155,6 +155,21 @@ a.pill { text-decoration: none; cursor: pointer; }
 .m.event { border-left-color: var(--fence); border-style: dashed; }
 .m.tool.stub .sum { opacity: .6; }
 .m.err { border-color: var(--bad); }
+.stats { position: fixed; inset: 0; z-index: 30; max-width: none; margin: 0; padding: 0; background: var(--bg);
+  flex-direction: column; }
+.stats.open { display: flex; }
+.statsbody { flex: 1; overflow: auto; padding: 16px; }
+.statsbody h3 { margin: 18px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+table.st { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+table.st th, table.st td { padding: 4px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+table.st th:first-child, table.st td:first-child { text-align: left; }
+table.st th { color: var(--muted); font-weight: 600; font-size: 11px; position: sticky; top: 0; background: var(--bg); }
+table.st th.sort { cursor: pointer; } table.st th.sort:hover { color: var(--accent); }
+table.st tr.cur td:first-child::after { content: " \25C2 here"; color: var(--accent); font-size: 11px; }
+table.st .bar { display: inline-block; height: 8px; background: var(--info); border-radius: 2px; vertical-align: middle; margin-left: 6px; }
+table.st .ok { color: var(--good); } table.st .dim { color: var(--muted); }
+table.st td.cell { text-align: center; }
+.stuck { color: var(--bad); }
 </style></head>
 <body>
 <div id="landing" class="screen">
@@ -178,6 +193,7 @@ a.pill { text-decoration: none; cursor: pointer; }
     <button id="newbtn">Start new run</button>
   </div>
   <p class="hint" id="newhint"></p>
+  <button id="comparebtn">Compare all runs</button>
 </div>
 <div id="promptmodal" class="screen modal">
   <div class="box">
@@ -199,6 +215,18 @@ a.pill { text-decoration: none; cursor: pointer; }
   </div>
   <div id="msglist"></div>
 </div>
+<div id="statspanel" class="screen stats">
+  <div class="msghead">
+    <h2 id="statstitle">Stats</h2>
+    <span id="statsmetric" style="display:none">
+      <button data-m="seconds" class="active">Time</button><button data-m="cost">Cost</button><button data-m="tokens">Tokens</button>
+    </span>
+    <span class="pill" id="statssum"></span>
+    <span class="spacer"></span>
+    <button id="statsclose">Close</button>
+  </div>
+  <div class="statsbody" id="statsbody"></div>
+</div>
 <header>
   <h1>Sinking Star · <span id="modename"></span></h1>
   <a class="pill" href="/" title="Choose another player">◂ change</a>
@@ -209,6 +237,7 @@ a.pill { text-decoration: none; cursor: pointer; }
   <span id="runctl" class="runctl"></span>
   <span class="spacer"></span>
   <button id="livebtn" class="active" title="Read the game every second (the player does not see this)">Game now: on</button>
+  <button id="statsbtn" title="Time, tokens and cost per level">Stats</button>
   <button id="msgbtn" style="display:none" title="Every message exchanged with the model">Messages</button>
   <button id="follow" class="active" title="Always show the latest step">Follow live</button>
 </header>
@@ -1006,6 +1035,103 @@ setInterval(pollLive, 1000);
   $("msgclose").onclick = () => { $("msgpanel").classList.remove("open"); clearInterval(timer); };
   $("mt-transcript").onclick = () => setTab("transcript");
   $("mt-context").onclick = () => setTab("context");
+})();
+</script>
+<script>
+// Stats: per-level time / tokens / cost for one run (header button) and across runs (run picker).
+(() => {
+  if (!MODE) return;
+  const $ = id => document.getElementById(id);
+  const mmss = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+    return h ? `${h}h ${String(m).padStart(2, "0")}m` : m ? `${m}m ${String(s % 60).padStart(2, "0")}s` : `${s}s`; };
+  const money = c => "$" + (c >= 1 ? c.toFixed(2) : c.toFixed(4));
+  const kfmt = n => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n);
+  const tok = r => r.prompt + r.completion;
+  const METRIC = { seconds: [r => r.seconds, mmss], cost: [r => r.cost, money], tokens: [tok, kfmt] };
+  let metric = "seconds", view = null, timer = null, sortKey = "solved";
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const th = (k, label, sortable) => `<th${sortable ? ` class="sort" data-k="${k}"` : ""}>${label}${sortKey === k ? " ▾" : ""}</th>`;
+
+  function runView(st) {
+    const t = st.total, tk = st.has_tokens, p = st.progress;
+    $("statssum").textContent = `${p.solved} solved · ${p.entered} levels entered · ${mmss(t.seconds)} · ` +
+      (tk ? `${money(t.cost)} · ${kfmt(t.prompt + t.completion)} tokens` : "no token data for this player");
+    const maxS = Math.max(...st.levels.map(r => r.seconds), 1), maxC = Math.max(...st.levels.map(r => r.cost), 1e-9);
+    const worst = st.levels.filter(r => !r.solved && r.name !== "open world").sort((a, b) => b.seconds - a.seconds)[0];
+    let h = `<table class="st"><tr><th>Level</th><th>Time</th>${tk ? "<th>Cost</th><th>Tokens in</th><th>cached</th><th>out</th>" : ""}
+      <th>Model calls</th><th>Game calls</th><th>Restarts</th><th>Visits</th><th>Solved</th></tr>`;
+    for (const r of st.levels) {
+      const stuck = worst && r.name === worst.name;
+      h += `<tr class="${r.name === p.current ? "cur" : ""}"><td class="${stuck ? "stuck" : ""}">${esc(r.name)}</td>
+        <td>${mmss(r.seconds)}<span class="bar" style="width:${60 * r.seconds / maxS}px"></span></td>
+        ${tk ? `<td>${money(r.cost)}<span class="bar" style="width:${60 * r.cost / maxC}px"></span></td>
+        <td>${kfmt(r.prompt)}</td><td class="dim">${kfmt(r.cached)}</td><td>${kfmt(r.completion)}</td>` : ""}
+        <td>${r.turns}</td><td>${r.calls}</td><td>${r.restarts}</td><td>${r.visits}</td>
+        <td class="${r.solved ? "ok" : "dim"}">${r.solved ? "yes" : r.name === "open world" ? "" : "no"}</td></tr>`;
+    }
+    h += `<tr><th>Total</th><th>${mmss(t.seconds)}</th>${tk ? `<th>${money(t.cost)}</th><th>${kfmt(t.prompt)}</th><th>${kfmt(t.cached)}</th><th>${kfmt(t.completion)}</th>` : ""}
+      <th>${t.turns}</th><th>${t.calls}</th><th>${t.restarts}</th><th></th><th></th></tr></table>
+      <p class="hint">Time counts only active play (gaps over 5 min are treated as pauses: ${mmss(t.idle_seconds)} here).
+      Red = the unsolved level where the most time went. Model calls, tokens and cost are charged to the level the player was in when the call was made.</p>`;
+    $("statsbody").innerHTML = h;
+  }
+
+  function compareView(all) {
+    const [val, fmt] = METRIC[metric];
+    $("statssum").textContent = `${all.length} runs`;
+    const rank = {};   // levels in the order they are first reached, across all runs
+    for (const s of all) s.levels.forEach((l, i) => { rank[l.name] = Math.min(rank[l.name] ?? 1e9, i); });
+    const order = Object.keys(rank).sort((a, b) => rank[a] - rank[b]);
+    const sorted = [...all].sort((a, b) => sortKey === "cost" ? a.total.cost - b.total.cost
+      : sortKey === "seconds" ? a.total.seconds - b.total.seconds
+      : b.progress.solved - a.progress.solved || b.progress.entered - a.progress.entered || a.total.cost - b.total.cost);
+    let h = `<table class="st"><tr>${th("run", "Run")}<th>Model</th>${th("solved", "Solved", 1)}<th>Levels reached</th><th>Now in</th>
+      ${th("seconds", "Time", 1)}${th("cost", "Cost", 1)}<th>Tokens</th><th>Cost / solved</th><th>Most ${{ seconds: "time", cost: "cost", tokens: "tokens" }[metric]} in</th></tr>`;
+    for (const s of sorted) {
+      const worst = s.levels.filter(r => r.name !== "open world").sort((a, b) => val(b) - val(a))[0];
+      const pr = s.progress, c = s.total.cost;
+      h += `<tr><td><a href="/?mode=${MODE}&run=${encodeURIComponent(s.run)}" style="color:var(--text)">${esc(s.run)}</a></td>
+        <td class="dim">${esc(s.model || "")}</td><td class="${pr.solved ? "ok" : "dim"}">${pr.solved}</td><td>${pr.entered}</td>
+        <td>${esc(pr.current || "–")}</td><td>${mmss(s.total.seconds)}</td>
+        <td>${s.has_tokens ? money(c) : "n/a"}</td><td>${s.has_tokens ? kfmt(tok(s.total)) : "n/a"}</td>
+        <td>${s.has_tokens && pr.solved ? money(c / pr.solved) : "–"}</td>
+        <td class="stuck">${worst ? `${esc(worst.name)} (${fmt(val(worst))})` : "–"}</td></tr>`;
+    }
+    h += `</table><h3>Where each run spent its ${{ seconds: "time", cost: "money", tokens: "tokens" }[metric]}, by level</h3>
+      <table class="st"><tr><th>Level</th>${sorted.map(s => `<th title="${esc(s.run)}">${esc(s.run.slice(0, 14))}</th>`).join("")}</tr>`;
+    const gmax = Math.max(1e-9, ...all.flatMap(s => s.levels.filter(l => l.name !== "open world").map(val)));
+    for (const lv of order) {
+      h += `<tr><td>${esc(lv)}</td>`;
+      for (const s of sorted) {
+        const r = s.levels.find(l => l.name === lv);
+        if (!r) { h += `<td class="cell dim">·</td>`; continue; }
+        const a = Math.min(.85, .1 + .75 * val(r) / gmax);
+        h += `<td class="cell" style="background:rgba(255,107,107,${a.toFixed(2)})" title="${esc(s.run)}: ${r.solved ? "solved" : "not solved"}">${fmt(val(r))}${r.solved ? " ✓" : ""}</td>`;
+      }
+      h += "</tr>";
+    }
+    h += `</table><p class="hint">Darker = more spent. ✓ = level solved. Token and cost data exists for API runs only. Click Solved, Time or Cost to sort.</p>`;
+    $("statsbody").innerHTML = h;
+    $("statsbody").querySelectorAll("th.sort").forEach(el => el.onclick = () => { sortKey = el.dataset.k; compareView(all); });
+  }
+
+  async function refresh() {
+    try {
+      if (RUN) { view = await (await fetch(`/stats?${Q}`)).json(); runView(view); }
+      else { view = await (await fetch(`/compare?mode=${MODE}`)).json(); compareView(view); }
+    } catch (e) { $("statsbody").textContent = "could not load stats: " + e; }
+  }
+  const open = () => { $("statstitle").textContent = RUN ? "Stats · " + RUN : "Compare runs";
+    $("statsmetric").style.display = RUN ? "none" : ""; $("statspanel").classList.add("open");
+    refresh(); timer = setInterval(() => RUN && refresh(), 5000); };
+  $("statsbtn").onclick = open;
+  $("comparebtn").onclick = open;
+  $("statsclose").onclick = () => { $("statspanel").classList.remove("open"); clearInterval(timer); };
+  $("statsmetric").querySelectorAll("button").forEach(b => b.onclick = () => {
+    metric = b.dataset.m;
+    $("statsmetric").querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+    if (view && !RUN) compareView(view);
+  });
 })();
 </script>
 </body>

@@ -18,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
-from game import runs  # noqa: E402
+from game import runs, stats  # noqa: E402
 
 PORT = 8765
 WORKSPACE = os.path.join(ROOT, "coding_player", "workspace")
@@ -153,9 +153,12 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/runs":
             mode = q.get("mode", [""])[0]
             self.send_json(runs.list_runs(mode) if mode in runs.MODES else [])
+        elif url.path == "/compare":
+            mode = q.get("mode", [""])[0]
+            self.send_json(stats.compare(mode) if mode in runs.MODES else [])
         elif url.path == "/info":
             self.send_json({"workspace": WORKSPACE})
-        elif url.path in ("/log", "/snapshot", "/voice", "/notes", "/messages", "/context"):
+        elif url.path in ("/log", "/snapshot", "/voice", "/notes", "/messages", "/context", "/stats"):
             mode, rdir = self.run_of(q)
             if rdir is None:
                 if url.path == "/snapshot":
@@ -170,6 +173,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(read_speech(rdir))
             elif url.path == "/messages":
                 self.send_json(read_jsonl(os.path.join(rdir, "transcript.jsonl"), int(q.get("from", ["0"])[0])))
+            elif url.path == "/stats":
+                self.send_json(stats.cached(mode, q["run"][0]))
             elif url.path == "/context":
                 self.send_json(read_context(rdir))
             else:
