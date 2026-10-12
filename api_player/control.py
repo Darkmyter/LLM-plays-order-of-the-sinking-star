@@ -52,6 +52,7 @@ def start_run(name, create, model=None, effort=None):
     active = Run(name, cfg, create=create)  # a resumed run uses the model from config.toml unless given
     if effort is not None:                  # "" = the config.toml default
         active.effort = effort if effort in EFFORTS else ""
+        active.save()                       # so a page opened right now shows it, not the old value
     active.start()
     return status()
 
@@ -115,6 +116,7 @@ class Handler(BaseHTTPRequestHandler):
                 active.cfg["model"] = body["model"]
             if "effort" in body:
                 active.effort = body["effort"] if body["effort"] in EFFORTS else ""
+                active.save()
             self.reply(status())
         else:
             self.reply({"error": "not found"}, 404)

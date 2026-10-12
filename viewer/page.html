@@ -1019,8 +1019,11 @@ setInterval(pollLive, 1000);
     const draw = () => {
       const u = mine() ? st : null;
       $("apiinfo").textContent = !("active" in st) ? "control server offline"
-        : u ? `${u.status} · turn ${u.turns} · $${u.cost} · ${u.prompt} in (${u.cached} cached) / ${u.completion} out`
+        : u ? `${u.status} · effort ${u.effort || "default"} · turn ${u.turns} · $${u.cost} · ${u.prompt} in (${u.cached} cached) / ${u.completion} out`
         : st.active ? `run "${st.active}" is active` : "not running";
+      // While the run is live, the effort selector shows what the run is really using (not a stale saved value).
+      if (u && live() && document.activeElement !== $("apieffort") && $("apieffort").value !== (u.effort || ""))
+        $("apieffort").value = u.effort || "";
       // Colour the status so a stopped run (cost limit, error) cannot be mistaken for one waiting on the model.
       const kind = !u ? "" : live() ? (st.status === "paused" ? "st-paused" : "st-run")
         : /^(stopped|error)/.test(st.status || "") ? "st-stop" : "";
