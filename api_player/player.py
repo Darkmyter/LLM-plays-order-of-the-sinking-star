@@ -20,6 +20,10 @@ from api_player.llm import Usage, load_config, make_client  # noqa: E402
 from game import runs  # noqa: E402
 
 MODE = "api"
+
+SAVE_BEFORE_CUT = ("Your earlier messages are about to be dropped from your context; your notes and your journal "
+                   "are all you will keep. Before that, decide what from them you want to keep and save it with "
+                   "note() or write_note(). Saving nothing is fine if nothing is worth keeping. Then carry on.")
 EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
 
 TOOLS = [
@@ -66,7 +70,9 @@ class Run:
         self.last_note_turn = 0
         self.last_nudge_turn = 0
         self.seen_kinds, self.seen_stops = set(), set()
+        self.journal = ""         # read-only: every sign and recording the player has read, kept by the harness
         self.effort = ""          # reasoning effort for this run; "" = the config.toml default
+        self.cut_pending = False  # True after the player was asked what to save, until the cut happens
         self.notes = ""
         self.status = "idle"
         self.last_line = ""
@@ -89,6 +95,11 @@ class Run:
         meta = runs.read_meta(MODE, self.name)
         self.turns = meta.get("turns", 0)
         self.effort = meta.get("effort", "")
+        try:
+            with open(self._path("journal.md"), encoding="utf-8") as f:
+                self.journal = f.read()
+        except FileNotFoundError:
+            pass
         for k, v in meta.get("usage", {}).items():
             setattr(self.usage, k, v)
         for fname, attr, default in (("history.json", "messages", []), ("notes.md", "notes", "")):
@@ -148,6 +159,8 @@ class Run:
             result = f"error: {e} (is the game running and in a level?)"
         self.log({"t": t0, "ms": round((time.time() - t0) * 1000), "tool": name, "args": args,
                   "result": result})
+        if name in ("act", "look"):
+            self.update_journal(result)
         return result
 
     def add_note(self, kind, text):
@@ -191,6 +204,38 @@ class Run:
                        "note() takes one line.)")
         return ("\n" + "\n".join(out)) if out else ""
 
+    def update_journal(self, result):
+        """Keep every sign and recording the player has read or heard, word for word, in journal.md.
+        The game shows that text once; the journal is the harness's copy, shown read-only each turn."""
+        lines = result.split("\n")
+        place = re.search(r"^Puzzle level '([^']+)'|^(Open world)|^([^\n,]+), view around you", result, re.M)
+        where = next((g for g in (place.groups() if place else ()) if g), "")
+        tag = f"[turn {self.turns}" + (f" · {where}" if where else "") + "]"
+        new, i = [], 0
+        while i < len(lines):
+            m = re.match(r'\s*You read (.+?): "(.*)$', lines[i])
+            rec = re.match(r"\s*(.+?) played a recording", lines[i])
+            if m:
+                text, j = m.group(2), i
+                while not text.rstrip().endswith('"') and j + 1 < len(lines) and j - i < 12 and lines[j + 1].strip():
+                    j += 1
+                    text += "\n" + lines[j]
+                new.append(f'- {tag} {m.group(1)}: "{text.rstrip().removesuffix(chr(34))}"')
+                i = j
+            elif rec:
+                body = []
+                while i + 1 < len(lines) and lines[i + 1].startswith("    "):
+                    i += 1
+                    body.append(lines[i].rstrip())
+                if body:
+                    new.append(f"- {tag} {rec.group(1)} recording:\n" + "\n".join(body))
+            i += 1
+        added = [e for e in new if e.split("] ", 1)[-1] not in self.journal]
+        if added:
+            self.journal = (self.journal.rstrip() + "\n" if self.journal else "") + "\n".join(added) + "\n"
+            with open(self._path("journal.md"), "w", encoding="utf-8") as f:
+                f.write(self.journal)
+
     def add_floor_rows(self, result):
         """Append the exact floor coordinates to a view (see game_state.floor_rows). It goes inside
         the view block, so it is dropped together with the map when old observations are stubbed."""
@@ -208,6 +253,9 @@ class Run:
     def build_messages(self):
         system = self.system_prompt() + (f"\n\n# Your notes\n{self.notes}" if self.notes else
                                          "\n\n# Your notes\n(empty)")
+        if self.journal:
+            system += ("\n\n# Journal (read-only: the game keeps every sign and recording you have read or heard)\n"
+                       + self.journal)
         return [{"role": "system", "content": system}] + self.messages
 
     @staticmethod
@@ -229,6 +277,12 @@ class Run:
                 if seen > keep:
                     m["content"] = stub_result(m["content"])
         if len(self.messages) > self.lim["history_high"]:
+            if not self.cut_pending:
+                # Before dropping old messages, let the player decide what to keep. It may save nothing.
+                self.cut_pending = True
+                self.add({"role": "user", "content": SAVE_BEFORE_CUT})
+                return
+            self.cut_pending = False
             cut = len(self.messages) - self.lim["history_low"]
             while cut < len(self.messages) and self.messages[cut]["role"] != "assistant":
                 cut += 1  # start at an assistant turn so no tool result is orphaned

@@ -85,13 +85,15 @@ def read_speech(rdir, limit=300):
 
 
 def read_notes(mode, rdir):
-    """Coding-agent runs keep a notes/ folder; API runs keep a single notes.md."""
+    """Coding-agent runs keep a notes/ folder; API runs keep notes.md (the player's own) and
+    journal.md (read-only: signs and recordings the harness kept)."""
     files = []
     if mode == "api":
-        p = os.path.join(rdir, "notes.md")
-        if os.path.isfile(p):
-            with open(p, encoding="utf-8", errors="replace") as f:
-                files.append({"name": "notes.md", "mtime": os.path.getmtime(p), "content": f.read()})
+        for name in ("notes.md", "journal.md"):
+            p = os.path.join(rdir, name)
+            if os.path.isfile(p):
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    files.append({"name": name, "mtime": os.path.getmtime(p), "content": f.read()})
         return files
     base = os.path.join(rdir, "notes")
     for root, _, names in os.walk(base):
@@ -117,6 +119,10 @@ def read_context(rdir):
         history = []
     notes = text(os.path.join(rdir, "notes.md"))
     system = text(os.path.join(ROOT, "api_player", "prompt.md")) + "\n\n# Your notes\n" + (notes or "(empty)")
+    journal = text(os.path.join(rdir, "journal.md"))
+    if journal:
+        system += ("\n\n# Journal (read-only: the game keeps every sign and recording you have read or heard)\n"
+                   + journal)
     return [{"role": "system", "content": system}] + history
 
 
