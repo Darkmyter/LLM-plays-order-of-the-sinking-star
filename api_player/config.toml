@@ -34,3 +34,11 @@ max_cost_usd = 10.0      # stop when the run costs more than this
 history_high = 40        # when history exceeds this many messages...
 history_low = 16         # ...cut it back to about this many (batch pruning keeps the prefix cached)
 full_views_kept = 1      # how many recent observations keep their full map
+
+[recording]
+# While a player runs, record the game window and the viewer window (one video each, under the run's
+# recordings/ folder). Pausing or stopping ends the videos; resuming starts new ones. Needs ffmpeg on PATH.
+enabled = true
+fps = 10
+max_width = 1280         # videos are scaled down to at most this wide
+crf = 28                 # H.264 quality: lower = better and bigger

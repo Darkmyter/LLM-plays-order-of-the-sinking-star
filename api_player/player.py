@@ -73,6 +73,7 @@ class Run:
         self.journal = ""         # read-only: every sign and recording the player has read, kept by the harness
         self.effort = ""          # reasoning effort for this run; "" = the config.toml default
         self.cut_pending = False  # True after the player was asked what to save, until the cut happens
+        self.recorder = None      # game + viewer recording (game/recorder.py), created on first use
         self.notes = ""
         self.status = "idle"
         self.last_line = ""
@@ -302,6 +303,22 @@ class Run:
     def stop(self):
         self.stop_flag.set()
 
+    def set_recording(self, on):
+        """Record the game and the viewer while the player runs: on() when running, off() on pause, stop or
+        error. Resuming starts new videos. A recording problem never stops the player."""
+        if not (self.cfg.get("recording") or {}).get("enabled", False):
+            return
+        try:
+            if self.recorder is None:
+                from game.recorder import RunRecorder
+                self.recorder = RunRecorder(self.dir, self.cfg["recording"])
+            self.recorder.start() if on else self.recorder.stop()
+        except Exception as e:
+            self.last_line = f"recording problem: {e}"
+
+    def recording_status(self):
+        return self.recorder.status() if self.recorder else {}
+
     def _loop(self):
         self.status = "running"
         try:
@@ -311,9 +328,11 @@ class Run:
             while not self.stop_flag.is_set():
                 if self.pause_flag.is_set():
                     self.status = "paused"
+                    self.set_recording(False)
                     time.sleep(0.3)
                     continue
                 self.status = "running"
+                self.set_recording(True)
                 if self.turns >= self.lim["max_turns"]:
                     self.status = "stopped: turn limit"
                     break
@@ -326,6 +345,7 @@ class Run:
         else:
             if self.status in ("running", "paused"):
                 self.status = "stopped"
+        self.set_recording(False)
         self.set_phase("idle")
         self.save()
 

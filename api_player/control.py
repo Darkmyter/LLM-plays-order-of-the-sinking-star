@@ -33,7 +33,8 @@ def status():
     return {"active": active.name, "status": active.status, "model": active.cfg["model"], "effort": active.effort,
             "turns": active.turns, "last": active.last_line, "prompt": u.prompt,
             "cached": u.cached, "completion": u.completion, "cost": round(u.cost, 4),
-            "phase": active.phase, "phase_for": round(time.time() - active.phase_since, 1)}
+            "phase": active.phase, "phase_for": round(time.time() - active.phase_since, 1),
+            "recording": active.recording_status()}
 
 
 def start_run(name, create, model=None, effort=None):
