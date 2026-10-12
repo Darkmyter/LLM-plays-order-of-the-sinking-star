@@ -10,8 +10,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
-  font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; height: 100vh;
-  display: grid; grid-template-rows: auto 1fr; }
+  font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; min-height: 100vh; display: block; }
 header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; flex-wrap: wrap;
   border-bottom: 1px solid var(--line); background: var(--panel); }
 header h1 { font-size: 15px; margin: 0; font-weight: 600; }
@@ -33,9 +32,12 @@ button { background: var(--panel2); color: var(--text); border: 1px solid var(--
 button.active { border-color: var(--accent); color: var(--accent); }
 /* Top row: the two maps (side by side) and, for the API player, the model's messages on the right.
    Bottom row: moves and actions next to the notes. */
-main { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1.25fr) minmax(0, .75fr);
-  grid-template-areas: "top" "bottom"; min-height: 0; }
-body.hasmsgs main { grid-template-columns: minmax(0, 1fr) minmax(320px, 34%); grid-template-areas: "top msgs" "bottom bottom"; }
+/* The first screen (what a screen recording of this page shows) holds what is worth watching: both maps, the
+   objects, the latest messages and the latest notes. Moves & actions are below it, out of view until you scroll. */
+main { --screen: calc(100vh - var(--hdr, 56px)); display: grid; grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: calc(var(--screen) * .6) calc(var(--screen) * .4) 85vh;
+  grid-template-areas: "top" "notes" "moves"; }
+body.hasmsgs main { grid-template-columns: minmax(0, 1fr) minmax(320px, 34%); grid-template-areas: "top msgs" "notes notes" "moves moves"; }
 .col { min-height: 0; display: flex; flex-direction: column; }
 .left { grid-area: top; min-width: 0; min-height: 0; display: flex; flex-direction: row; overflow: hidden; }
 .left > .section { overflow: auto; min-height: 0; border-bottom: 0; }
@@ -44,9 +46,8 @@ body.hasmsgs main { grid-template-columns: minmax(0, 1fr) minmax(320px, 34%); gr
 .msgside { grid-area: msgs; display: none; flex-direction: column; min-height: 0; min-width: 0;
   border-left: 1px solid var(--line); }
 body.hasmsgs .msgside { display: flex; }
-.bottom { grid-area: bottom; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 0;
-  border-top: 1px solid var(--line); }
-.bottom .col + .col { border-left: 1px solid var(--line); }
+.notesarea { grid-area: notes; border-top: 1px solid var(--line); min-width: 0; }
+.movesarea { grid-area: moves; border-top: 1px solid var(--line); min-width: 0; }
 .section { padding: 12px 16px; border-bottom: 1px solid var(--line); }
 h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
   color: var(--muted); font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -113,6 +114,11 @@ h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing
 .ev.say .what { font-weight: 400; font-style: italic; color: #ffe8a3; white-space: pre-wrap; }
 #notes { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 #notetabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 16px 0; }
+#notebody.latest { white-space: normal; font: 13px/1.5 system-ui, sans-serif; }
+.nrow { display: flex; gap: 10px; padding: 3px 0; border-bottom: 1px solid #ffffff0a; }
+.nrow .np { flex: 0 0 96px; color: var(--info); font: 600 11px/1.9 ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; }
+.nrow .nt { white-space: pre-wrap; word-break: break-word; }
+.nrow.fresh { background: #f5c54214; box-shadow: inset 3px 0 0 var(--accent); padding-left: 6px; }
 #notebody { flex: 1; overflow: auto; padding: 10px 16px; white-space: pre-wrap;
   font: 12px/1.55 ui-monospace, Consolas, monospace; color: var(--text); }
 .empty { color: var(--muted); padding: 8px 0; }
@@ -121,10 +127,9 @@ h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing
   .left { display: block; overflow: visible; }
   .left > .section:last-child { border-left: 0; border-top: 1px solid var(--line); }
   main, body.hasmsgs main { display: block; }
-  .left, .msgside, .bottom { max-height: none; }
+  .left, .msgside { max-height: none; }
   body.hasmsgs .msgside { border-left: 0; border-top: 1px solid var(--line); max-height: 60vh; }
-  .bottom { display: block; }
-  .bottom .col + .col { border-left: 0; border-top: 1px solid var(--line); }
+  .notesarea, .movesarea { height: 70vh; }
 }
 .screen { display: none; padding: 32px 24px; max-width: 760px; margin: 0 auto; width: 100%; }
 body.stage-landing #landing, body.stage-picker #picker { display: block; }
@@ -288,18 +293,16 @@ table.st td.cell { text-align: center; }
     </div>
     <div id="msglist"></div>
   </div>
-  <div class="bottom">
-    <div class="col">
-      <div class="section" style="padding-bottom:6px"><h2>Moves &amp; actions <span class="hint">newest first</span></h2></div>
-      <div id="timeline"><div class="empty" style="padding:16px">No actions yet. Start the player session.</div></div>
+  <div class="col notesarea">
+    <div class="section" style="padding-bottom:6px"><h2>Notes <span class="hint">latest additions; click a page to read it all</span></h2></div>
+    <div id="notes">
+      <div id="notetabs"></div>
+      <div id="notebody" class="empty">No notes yet.</div>
     </div>
-    <div class="col">
-      <div class="section" style="padding-bottom:6px"><h2>Notes</h2></div>
-      <div id="notes">
-        <div id="notetabs"></div>
-        <div id="notebody" class="empty">No notes yet.</div>
-      </div>
-    </div>
+  </div>
+  <div class="col movesarea">
+    <div class="section" style="padding-bottom:6px"><h2>Moves &amp; actions <span class="hint">newest first</span></h2></div>
+    <div id="timeline"><div class="empty" style="padding:16px">No actions yet. Start the player session.</div></div>
   </div>
 </main>
 <script>
@@ -310,7 +313,7 @@ const Q = `mode=${encodeURIComponent(MODE)}&run=${encodeURIComponent(RUN)}`;
 </script>
 <script>
 const events = [];
-let selected = null, follow = true, noteSel = "progress.md", liveOn = true, stateSrc = "b";   // objects list: "b" = the game right now (default), "a" = what the player saw
+let selected = null, follow = true, noteSel = "@latest", liveOn = true, stateSrc = "b";   // objects list: "b" = the game right now (default), "a" = what the player saw
 let viewA = null, viewAprev = null, viewB = null, liveBusy = false;
 const $ = id => document.getElementById(id);
 
@@ -808,24 +811,83 @@ async function pollLive() {
   liveBusy = false;
 }
 
+// Notes: the default tab, "latest", lists what was added most recently across all pages (so a recording of
+// this page shows what the player just wrote); the other tabs show a whole page.
+const noteSeen = new Map();       // page -> Set of entries already seen
+let recentNotes = [], notesSeeded = false, notesKey = "";
+
+function noteEntries(content) {   // a "- ..." line plus any indented lines under it is one entry
+  const out = [];
+  for (const line of (content || "").split("\n")) {
+    if (!line.trim()) continue;
+    if (/^\s/.test(line) && out.length) out[out.length - 1] += "\n" + line; else out.push(line);
+  }
+  return out;
+}
+
+const isText = e => !/^#+\s/.test(e);   // headings are structure, not additions
+
+function updateRecent(files) {
+  const now = Date.now();
+  if (!notesSeeded) {              // first look: the newest entries by their (turn N) tag, else the tail of each page
+    const all = [];
+    for (const f of files) for (const e of noteEntries(f.content).filter(isText)) {
+      const m = e.match(/\(turn (\d+)\)/);
+      all.push({ page: f.name.replace(/\.md$/, ""), text: e, turn: m ? +m[1] : -1, t: 0 });
+    }
+    const tagged = all.filter(x => x.turn >= 0).sort((a, b) => b.turn - a.turn).slice(0, 14);
+    const untagged = [];
+    for (const f of files) untagged.push(...all.filter(x => x.turn < 0 && x.page === f.name.replace(/\.md$/, "")).slice(-3).reverse());
+    recentNotes = tagged.length >= 6 ? tagged : tagged.concat(untagged).slice(0, 14);
+    notesSeeded = true;
+  } else {
+    for (const f of files) {
+      const page = f.name.replace(/\.md$/, ""), seen = noteSeen.get(f.name) || new Set();
+      let fresh = noteEntries(f.content).filter(e => isText(e) && !seen.has(e));
+      if (fresh.length > 6) fresh = fresh.slice(-6);          // a page rewritten as a whole: show only its last lines
+      for (const e of fresh) recentNotes.unshift({ page, text: e, t: now });
+    }
+    recentNotes = recentNotes.slice(0, 40);
+  }
+  for (const f of files) noteSeen.set(f.name, new Set(noteEntries(f.content)));
+}
+
 async function pollNotes() {
   try {
     const files = await (await fetch(`/notes?${Q}`)).json();
+    updateRecent(files);
     const tabs = $("notetabs");
+    const names = ["@latest", ...files.map(f => f.name)];
+    if (!names.includes(noteSel)) noteSel = "@latest";
+    const key = JSON.stringify([noteSel, names, noteSel === "@latest" ? recentNotes : (files.find(f => f.name === noteSel) || {}).content]);
+    if (key === notesKey) return;                             // nothing changed: leave the page alone
+    notesKey = key;
     tabs.innerHTML = "";
-    if (!files.length) { $("notebody").textContent = "No notes yet."; return; }
-    if (!files.find(f => f.name === noteSel)) noteSel = files[0].name;
-    for (const f of files) {
+    for (const n of names) {
       const b = document.createElement("button");
-      b.textContent = f.name.replace(/\.md$/, "");
-      if (f.name === noteSel) b.classList.add("active");
-      b.onclick = () => { noteSel = f.name; pollNotes(); };
+      b.textContent = n === "@latest" ? "latest" : n.replace(/\.md$/, "");
+      if (n === noteSel) b.classList.add("active");
+      b.onclick = () => { noteSel = n; notesKey = ""; pollNotes(); };
       tabs.appendChild(b);
     }
     const body = $("notebody");
     body.classList.remove("empty");
-    const cur = files.find(f => f.name === noteSel);
-    if (body.textContent !== cur.content) body.textContent = cur.content;
+    body.innerHTML = "";
+    if (noteSel === "@latest") {
+      body.classList.add("latest");
+      if (!recentNotes.length) { body.classList.add("empty"); body.textContent = "No notes yet."; return; }
+      for (const r of recentNotes) {
+        const row = document.createElement("div");
+        row.className = "nrow" + (r.t && Date.now() - r.t < 30000 ? " fresh" : "");
+        const pg = document.createElement("span"); pg.className = "np"; pg.textContent = r.page;
+        const tx = document.createElement("span"); tx.className = "nt"; tx.textContent = r.text.replace(/^-\s*/, "");
+        row.append(pg, tx);
+        body.appendChild(row);
+      }
+    } else {
+      body.classList.remove("latest");
+      body.textContent = (files.find(f => f.name === noteSel) || {}).content || "";
+    }
   } catch (err) {}
 }
 
@@ -843,9 +905,13 @@ $("follow").onclick = () => {
   if (follow) showStep(events.length - 1);
 };
 window.addEventListener("resize", () => { if (viewA || viewB) drawMaps(); });
+// The first screen is the viewport minus the header (see the layout CSS), so keep that height up to date.
+const hdrEl = document.querySelector("header");
+const setHdr = () => document.documentElement.style.setProperty("--hdr", hdrEl.offsetHeight + "px");
+setHdr(); new ResizeObserver(setHdr).observe(hdrEl);
 poll(); pollNotes(); pollLive();
 setInterval(poll, 700);
-setInterval(pollNotes, 3000);
+setInterval(pollNotes, 2000);
 setInterval(pollLive, 1000);
 </script>
 <script>
@@ -1015,7 +1081,8 @@ setInterval(pollLive, 1000);
   if (MODE !== "api" || !RUN) return;
   const $ = id => document.getElementById(id);
   document.body.classList.add("hasmsgs");   // shows the side panel
-  let tab = "transcript", transcript = [], ctxKey = "", timer = null;
+  let tab = "transcript", transcript = [], ctxKey = "", timer = null, autoKey = "";
+  const cardEls = new Map();      // message key -> its card, to fold the previous latest message
   const openKeys = new Set();
 
   const toolCalls = m => (m.tool_calls || []).map(c => {
@@ -1068,9 +1135,20 @@ setInterval(pollLive, 1000);
     const fresh = await (await fetch(`/messages?${Q}&from=${transcript.length}`)).json();
     if (tab !== "transcript") return;
     const follow = atBottom();
+    let newest = null;
     for (const m of fresh) {
       transcript.push(m);
-      list().prepend(card(m, "t" + m.i));
+      const key = "t" + m.i, el = card(m, key);
+      cardEls.set(key, el);
+      list().prepend(el);
+      if (m.role === "assistant") newest = key;
+    }
+    // The latest assistant message stays open; it folds up again when the next one arrives (unless opened by hand).
+    if (newest && newest !== autoKey) {
+      const old = cardEls.get(autoKey);
+      if (old && !openKeys.has(autoKey)) old.classList.remove("open");
+      autoKey = newest;
+      cardEls.get(newest).classList.add("open");
     }
     const u = transcript.filter(m => m.usage).reduce((a, m) => ({ i: a.i + m.usage.prompt, o: a.o + m.usage.completion,
       c: a.c + m.usage.cached, $: a.$ + (+m.usage.cost || 0) }), { i: 0, o: 0, c: 0, $: 0 });
@@ -1092,7 +1170,7 @@ setInterval(pollLive, 1000);
   }
   const poll = () => (tab === "transcript" ? pollTranscript() : pollContext()).catch(() => {});
   function setTab(t) {
-    tab = t; transcript = []; ctxKey = ""; list().innerHTML = "";
+    tab = t; transcript = []; ctxKey = ""; autoKey = ""; cardEls.clear(); list().innerHTML = "";
     $("mt-transcript").classList.toggle("active", t === "transcript");
     $("mt-context").classList.toggle("active", t === "context");
     poll().then(stick);
