@@ -32,7 +32,10 @@ main { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows:
   grid-template-areas: "top" "bottom"; min-height: 0; }
 body.hasmsgs main { grid-template-columns: minmax(0, 1fr) minmax(320px, 34%); grid-template-areas: "top msgs" "bottom bottom"; }
 .col { min-height: 0; display: flex; flex-direction: column; }
-.left { overflow: auto; grid-area: top; min-width: 0; min-height: 0; }
+.left { grid-area: top; min-width: 0; min-height: 0; display: flex; flex-direction: row; overflow: hidden; }
+.left > .section { overflow: auto; min-height: 0; border-bottom: 0; }
+.left > .section:first-child { flex: 1 1 0; min-width: 0; }
+.left > .section:last-child { flex: 0 0 340px; border-left: 1px solid var(--line); }
 .msgside { grid-area: msgs; display: none; flex-direction: column; min-height: 0; min-width: 0;
   border-left: 1px solid var(--line); }
 body.hasmsgs .msgside { display: flex; }
@@ -68,6 +71,7 @@ h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing
 .cell.stack::after { content: ""; position: absolute; right: 1px; top: 1px; width: 6px; height: 6px;
   border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px #000; }
 .cell.diff { outline: 2px solid var(--bad); outline-offset: -1px; z-index: 1; }
+.cell.ghost { outline: 2px dashed var(--info); outline-offset: -2px; color: var(--info); }
 #legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 0; font-size: 12px; }
 #legend .item { display: inline-flex; align-items: center; gap: 6px; color: var(--text); }
 #legend .cell { width: 16px; height: 16px; font-size: 10px; }
@@ -108,6 +112,8 @@ h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing
 .empty { color: var(--muted); padding: 8px 0; }
 @media (max-width: 1000px) {
   body, body.hasmsgs { height: auto; display: block; }
+  .left { display: block; overflow: visible; }
+  .left > .section:last-child { border-left: 0; border-top: 1px solid var(--line); }
   main, body.hasmsgs main { display: block; }
   .left, .msgside, .bottom { max-height: none; }
   body.hasmsgs .msgside { border-left: 0; border-top: 1px solid var(--line); max-height: 60vh; }
@@ -512,6 +518,13 @@ function renderMap(el, v, other, box) {
     here.get(k).push(o);
   }
   const otherIdx = other ? tileIndex(other) : null;
+  // Where the game shows a ghost (a mirror's teleport indicator): "... appears at (5, 13)" in an object line.
+  const ghosts = new Set();
+  for (const o of v.objs || [])
+    for (const p of o.parts) {
+      const g = p.match(/appears at \((-?\d+),\s*(-?\d+)\)/);
+      if (g) ghosts.add(`${g[1]},${g[2]}`);
+    }
   const frag = document.createDocumentFragment();
   const F = "var(--fence)";
   for (const { y, r } of rows) {
@@ -525,6 +538,7 @@ function renderMap(el, v, other, box) {
       const c = document.createElement("div");
       c.className = "cell " + tileClass(ch);
       const objs = here.get(key) || [];
+      if (ghosts.has(key)) { c.classList.add("ghost"); if (TERRAIN.includes(ch)) c.textContent = "◌"; }
       if (!TERRAIN.includes(ch)) {
         c.textContent = ch;
         const top = objs.find(o => o.g === ch);
@@ -533,7 +547,7 @@ function renderMap(el, v, other, box) {
       }
       if (objs.length > 1 || objs.some(o => o.parts.some(p => /^(under|inside|standing on|holding)/.test(p))))
         c.classList.add("stack");
-      c.title = `(${key})` + (objs.length ? "\n" + objs.map(o => o.label + (o.parts.length ? ": " + o.parts.join(", ") : "")).join("\n") : "");
+      c.title = `(${key})` + (ghosts.has(key) ? "\nteleport indicator: the hero would appear here" : "") + (objs.length ? "\n" + objs.map(o => o.label + (o.parts.length ? ": " + o.parts.join(", ") : "")).join("\n") : "");
       if (otherIdx && otherIdx.size && otherIdx.has(key) && otherIdx.get(key) !== ch) c.classList.add("diff");
       const sh = [];
       const ec = e => e === "fence" ? [F, 3] : [GATE_COLORS[e] || GATE_COLORS["~"], 5];
@@ -650,7 +664,7 @@ function drawMaps() {
   // Cell size: as large as fits, so the two maps sit side by side without scrolling.
   const colsOf = b => (b ? b.x1 - b.x0 + 1 : 0);
   const n = colsOf(shared || bA) + (liveOn ? colsOf(shared || bB) : 0);
-  const left = document.querySelector(".left");
+  const left = document.querySelector(".left > .section");
   if (n && left) {
     const avail = left.clientWidth - 32 - (liveOn ? 18 : 0) - 28 * (liveOn ? 2 : 1) - 2 * (n + 2);
     document.querySelector(".maps").style.setProperty("--cs", Math.max(11, Math.min(26, Math.floor(avail / n))) + "px");
