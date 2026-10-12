@@ -695,8 +695,29 @@ def floor_rows(state):
             i = j + 1
         if runs:
             rows.append(f"  y={y}: x={', '.join(runs)}")
-    return ("Floor you can walk on by row (fences are not considered; tiles with a sign, rock or other "
-            "blocking object are left out; any tile not listed is a wall, a drop or blocked):\n" + "\n".join(rows)) if rows else ""
+    return ("Floor tiles by row (x ranges of tiles at your level). Fences are not tiles: they are separations "
+            "between two tiles, so they are not part of these ranges, and two listed neighbours can still be "
+            "separated by a fence (see Fences). Tiles with a sign, rock or other blocking object are left out; "
+            "a tile not listed is a wall, a drop or blocked:\n" + "\n".join(rows)) if rows else ""
+
+
+# What a symbol on the map means for the hero, in plain words. Derived from WALKABLE_KINDS / blocks_tile,
+# so the legend never claims more than the engine rules; only a few kinds add how to interact.
+USE_STAND, USE_THROUGH, USE_BLOCK = "you can stand on it", "you can walk through it", "blocks you"
+USE_OVERRIDE = {"Sign": "blocks you; to read it, stand next to it and face it",
+                "Voice_Log": "you can stand on it; activate while standing on it",
+                "Rock": "you cannot walk onto it"}
+
+
+def use_of(o):
+    """Plain-words effect of an object on movement, or "" for heroes."""
+    if o["kind"] == "Guy":
+        return ""
+    if o["kind"] in USE_OVERRIDE:
+        return USE_OVERRIDE[o["kind"]]
+    if o["kind"] == "Gate":
+        return USE_BLOCK if blocks_tile(o) else USE_THROUGH
+    return USE_BLOCK if blocks_tile(o) else USE_STAND
 
 
 def render(state, numbered=None):
@@ -758,7 +779,6 @@ def render(state, numbered=None):
             return WALL
         return "." if (x, y, zh - 1) in solid else " "
 
-    legend = "'.'=floor at your level  '#'=wall (cannot be walked through)  ' '=drop/water/nothing"
     in_view = {}
     for o in map_objs:
         g = glyph_of(o)
@@ -789,9 +809,22 @@ def render(state, numbered=None):
             + (f" ({hero_name(h)})" if hero_name(h) else "")
             + (" <- you" if h.get("selected") else "") for h in heroes))
     lines += [symbols,
-              f"Map (top-down; north=up, east=right). {legend}",
+              "Map (top-down; north=up, east=right).",
               "Coordinates: the row number (y) is at both ends of each row; the column number (x) "
               "is written top-to-bottom above and below each column."]
+    lines += ["  . floor at your level", "  # wall: blocks you"]
+    if horiz or vert:
+        lines.append("  | - fence on a tile edge: separates the two tiles it lies between and blocks you")
+    lines.append("  (space) drop, water or nothing")
+    shown = {}
+    for o in map_objs:
+        if o["kind"] == "Guy":
+            name = "you" if o.get("selected") else (f"Hero {o['num']}" if o.get("num") else "other hero")
+        else:
+            name = o.get("variant") or DISPLAY.get(o["kind"], o["kind"].replace("_", " "))
+        shown[(glyph_of(o), name)] = use_of(o)
+    for (g, name), use in sorted(shown.items(), key=lambda kv: (kv[0][0] != "@", kv[0])):
+        lines.append(f"  {g} {name}" + (f": {use}" if use else ""))
     if gate_h or gate_v:
         lines.append("Outfit gates are on tile edges too, drawn with a colour letter instead of '-' / '|' "
                      "(R=red, G=green, B=blue, ~=other). You can walk through them; "
@@ -822,19 +855,21 @@ def render(state, numbered=None):
             f"{marks[w['id']]} = on the {w['facing']} edge of ({round(w['pos'][0])},{round(w['pos'][1])}), "
             f"{w.get('props', {}).get('outfit', 'outfit')}"
             for w in sorted(wardrobes, key=lambda w: (-w['pos'][1], w['pos'][0]))))
-    if other_fences:
-        lines.append("Fences at other heights (not on the map): " + ", ".join(
-            f"({round(f['pos'][0])},{round(f['pos'][1])}) {f.get('facing')} edge, "
-            f"height {round(f['pos'][2]) - zh:+d}" for f in other_fences))
     lines.append("")
-    lines.append("Objects (x, y, height relative to you):")
+    lines.append("Objects at your height (x, y, height relative to you):")
     held_by = {}
     by_id = {o["id"]: o for o in state["objects"]}
     for o in state["objects"]:
         for k in o.get("holding", []):
             held_by[k] = o
-    for o in sorted((o for o in state["objects"] if o["kind"] != "Fence"),
-                    key=lambda o: (o["kind"] != "Guy", o["kind"], o.get("num", 0), o["id"])):
+    # Like the map, the list shows what is at your own height. Things at other heights are not listed
+    # (they appear as soon as you are at their height); the count below says some exist.
+    listed = [o for o in state["objects"] if o["kind"] != "Fence"
+              and (round(o["pos"][2]) == zh or (o["kind"], o["id"]) in held_by)]
+    elsewhere = sum(1 for o in state["objects"] if o["kind"] not in ("Fence", "Wardrobe")
+                    and o not in listed and not (state["window"] and not in_window(
+                        tuple(round(v) for v in o["pos"]), state["window"])))
+    for o in sorted(listed, key=lambda o: (o["kind"] != "Guy", o["kind"], o.get("num", 0), o["id"])):
         x, y, z = (round(v) for v in o["pos"])
         extra = []
         if o["kind"] == "Guy":
@@ -900,6 +935,8 @@ def render(state, numbered=None):
             extra.append(f"name={o['name']}")
         pos = f"({x},{y},{z - zh:+d})" if on_grid(o) else f"(~{o['pos'][0]:.1f},~{o['pos'][1]:.1f}) off-grid"
         lines.append(f"  {glyph_of(o)} {label(o, numbered)} at {pos} " + ", ".join(e for e in extra if e))
+    if elsewhere:
+        lines.append(f"({elsewhere} more object{'s' if elsewhere > 1 else ''} in view at other heights, not shown.)")
     return "\n".join(lines)
 
 

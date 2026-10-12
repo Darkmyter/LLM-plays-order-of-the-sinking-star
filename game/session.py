@@ -131,7 +131,7 @@ class Session:
                     self.discovered.add(key)
                     added = True
                 read = key in self.discovered
-                o.setdefault("props", {})["status"] = "read" if read else "not read yet (walk up to it)"
+                o.setdefault("props", {})["status"] = "read" if read else "not read"
             elif o["kind"] == "Voice_Log":
                 if new and h["played"]:
                     said = transcript(h["name"])
@@ -539,8 +539,11 @@ class Session:
         p = lambda o: tuple(round(v) for v in o["pos"])
         wb, wa = before["window"], after["window"]
         # Only things inside both views can be seen to change; the rest just scrolled.
+        # Things at other heights are not on the map or in the object list, so their changes are not shown either.
+        levels = {before.get("layer", 0), after.get("layer", 0)}
         both = lambda pos: ((wb is None or in_window(pos, wb))
-                            and (wa is None or in_window(pos, wa)))
+                            and (wa is None or in_window(pos, wa))
+                            and round(pos[2]) in levels)
         out = []
         if wb != wa and wa is not None:
             out.append(f"the view moved: now showing x={wa[0]}..{wa[2]}, y={wa[1]}..{wa[3]}")
