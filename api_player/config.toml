@@ -30,7 +30,7 @@ reasoning = { effort = "low" }
 
 [limits]
 max_turns = 300          # model calls per run
-max_cost_usd = 2.0       # stop when the run costs more than this
+max_cost_usd = 10.0      # stop when the run costs more than this
 history_high = 40        # when history exceeds this many messages...
 history_low = 16         # ...cut it back to about this many (batch pruning keeps the prefix cached)
 full_views_kept = 1      # how many recent observations keep their full map
