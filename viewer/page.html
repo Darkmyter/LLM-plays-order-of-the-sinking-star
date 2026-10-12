@@ -26,15 +26,24 @@ header h1 { font-size: 15px; margin: 0; font-weight: 600; }
 button { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
   border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; }
 button.active { border-color: var(--accent); color: var(--accent); }
-main { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(260px, .75fr) minmax(300px, 1fr); min-height: 0; }
+/* Top row: the two maps (side by side) and, for the API player, the model's messages on the right.
+   Bottom row: moves and actions next to the notes. */
+main { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1.25fr) minmax(0, .75fr);
+  grid-template-areas: "top" "bottom"; min-height: 0; }
+body.hasmsgs main { grid-template-columns: minmax(0, 1fr) minmax(320px, 34%); grid-template-areas: "top msgs" "bottom bottom"; }
 .col { min-height: 0; display: flex; flex-direction: column; }
-.col + .col { border-left: 1px solid var(--line); }
-.left { overflow: auto; }
+.left { overflow: auto; grid-area: top; min-width: 0; min-height: 0; }
+.msgside { grid-area: msgs; display: none; flex-direction: column; min-height: 0; min-width: 0;
+  border-left: 1px solid var(--line); }
+body.hasmsgs .msgside { display: flex; }
+.bottom { grid-area: bottom; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 0;
+  border-top: 1px solid var(--line); }
+.bottom .col + .col { border-left: 1px solid var(--line); }
 .section { padding: 12px 16px; border-bottom: 1px solid var(--line); }
 h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
   color: var(--muted); font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.maps { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
-.mappanel { min-width: 0; }
+.maps { --cs: 20px; display: flex; gap: 18px; flex-wrap: nowrap; align-items: flex-start; }
+.mappanel { min-width: 0; flex: 0 1 auto; }
 .mappanel .where { font-weight: 600; margin-bottom: 2px; }
 .mappanel .heroes { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
 .mappanel .status { font-size: 12px; margin-top: 6px; color: var(--muted); }
@@ -43,11 +52,11 @@ h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing
   background: var(--panel2); border-radius: 4px; white-space: pre-wrap; display: none; }
 .mapwrap { overflow: auto; padding-bottom: 6px; max-width: 100%; }
 .map { display: grid; gap: 2px; width: max-content; font: 600 12px/1 ui-monospace, Consolas, monospace; }
-.cell { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+.cell { width: var(--cs, 20px); height: var(--cs, 20px); display: flex; align-items: center; justify-content: center;
   border-radius: 2px; position: relative; }
 .small .cell { width: 15px; height: 15px; font-size: 10px; }
 .lbl { color: var(--muted); font-weight: 400; font-size: 10px; }
-.xl { font-size: 9px; letter-spacing: -0.5px; }
+.xl { font-size: calc(var(--cs, 20px) * .45); letter-spacing: -0.5px; }
 .c-wall { background: var(--wall); }
 .c-wall2 { background: #303a47; }
 .c-wall1 { background: #29323d; box-shadow: inset 0 0 0 1px #3a4554; }
@@ -92,24 +101,18 @@ h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing
 .ev.level { border-left-color: var(--good); }
 .ev.say { cursor: default; }
 .ev.say .what { font-weight: 400; font-style: italic; color: #ffe8a3; white-space: pre-wrap; }
-#talk { overflow: auto; flex: 1; padding: 6px 0 12px; }
-.say { padding: 8px 16px; border-left: 3px solid transparent; }
-.say .t { color: var(--muted); font-size: 11px; display: flex; gap: 8px; }
-.say .t .st { margin-left: auto; }
-.say .txt { color: #ffe8a3; font-size: 15px; line-height: 1.45; margin-top: 2px; }
-.say.speaking { border-left-color: var(--accent); background: #f5c54214; }
-.say.speaking .st::before { content: "\1F50A  speaking"; color: var(--accent); }
-.say.skipped .txt { opacity: .45; text-decoration: line-through; }
-.say.skipped .st::before { content: "skipped"; }
-.say.failed .st::before { content: "voice failed"; color: var(--bad); }
-#notes { height: 38%; min-height: 160px; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+#notes { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 #notetabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 16px 0; }
 #notebody { flex: 1; overflow: auto; padding: 10px 16px; white-space: pre-wrap;
   font: 12px/1.55 ui-monospace, Consolas, monospace; color: var(--text); }
 .empty { color: var(--muted); padding: 8px 0; }
 @media (max-width: 1000px) {
-  main { grid-template-columns: 1fr; }
-  .col + .col { border-left: 0; border-top: 1px solid var(--line); }
+  body, body.hasmsgs { height: auto; display: block; }
+  main, body.hasmsgs main { display: block; }
+  .left, .msgside, .bottom { max-height: none; }
+  body.hasmsgs .msgside { border-left: 0; border-top: 1px solid var(--line); max-height: 60vh; }
+  .bottom { display: block; }
+  .bottom .col + .col { border-left: 0; border-top: 1px solid var(--line); }
 }
 .screen { display: none; padding: 32px 24px; max-width: 760px; margin: 0 auto; width: 100%; }
 body.stage-landing #landing, body.stage-picker #picker { display: block; }
@@ -135,13 +138,10 @@ body.stage-landing, body.stage-picker { display: block; height: auto; overflow: 
   border-radius: 6px; padding: 8px; font: 13px/1.4 ui-monospace, Consolas, monospace; margin-bottom: 10px; }
 .runctl { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 a.pill { text-decoration: none; cursor: pointer; }
-.msgs { position: fixed; inset: 0; z-index: 20; max-width: none; margin: 0; padding: 0; background: var(--bg);
-  flex-direction: column; }
-.msgs.open { display: flex; }
 .msghead { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line);
-  background: var(--panel); }
+  background: var(--panel); flex-wrap: wrap; }
 .msghead h2 { margin: 0 8px 0 0; font-size: 15px; }
-#msglist { flex: 1; overflow: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+#msglist { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .m { border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px; background: var(--panel); }
 .m .mh { display: flex; gap: 10px; align-items: center; padding: 5px 10px; cursor: pointer; font-size: 12px;
   color: var(--muted); }
@@ -208,18 +208,6 @@ table.st td.cell { text-align: center; }
     <div><button id="promptcopy">Copy</button> <button id="promptclose">Close</button></div>
   </div>
 </div>
-<div id="msgpanel" class="screen msgs">
-  <div class="msghead">
-    <h2>Messages</h2>
-    <button id="mt-transcript" class="active">Transcript</button>
-    <button id="mt-context" title="Exactly what the next model call will send">Next call</button>
-    <span class="pill" id="msgstats"></span>
-    <label class="hint"><input type="checkbox" id="msgwrap" checked> follow</label>
-    <span class="spacer"></span>
-    <button id="msgclose">Close</button>
-  </div>
-  <div id="msglist"></div>
-</div>
 <div id="statspanel" class="screen stats">
   <div class="msghead">
     <h2 id="statstitle">Stats</h2>
@@ -244,7 +232,6 @@ table.st td.cell { text-align: center; }
   <span class="spacer"></span>
   <button id="livebtn" class="active" title="Read the game every second (the player does not see this)">Game now: on</button>
   <button id="statsbtn" title="Time, tokens and cost per level">Stats</button>
-  <button id="msgbtn" style="display:none" title="Every message exchanged with the model">Messages</button>
   <button id="follow" class="active" title="Always show the latest step">Follow live</button>
 </header>
 <main>
@@ -276,16 +263,27 @@ table.st td.cell { text-align: center; }
       <div id="fences" class="fencetext"></div>
     </div>
   </div>
-  <div class="col">
-    <div class="section" style="padding-bottom:6px"><h2>Commentary <span class="pill" id="talkcount">0</span></h2></div>
-    <div id="talk"><div class="empty" style="padding:16px">Nothing said yet.</div></div>
+  <div id="msgpanel" class="msgside">
+    <div class="msghead">
+      <h2 style="margin:0">Messages</h2>
+      <button id="mt-transcript" class="active">Transcript</button>
+      <button id="mt-context" title="Exactly what the next model call will send">Next call</button>
+      <span class="pill" id="msgstats"></span>
+      <label class="hint"><input type="checkbox" id="msgwrap" checked> stay on newest</label>
+    </div>
+    <div id="msglist"></div>
   </div>
-  <div class="col">
-    <div class="section" style="padding-bottom:6px"><h2>Actions</h2></div>
-    <div id="timeline"><div class="empty" style="padding:16px">No actions yet. Start the player session.</div></div>
-    <div id="notes">
-      <div id="notetabs"></div>
-      <div id="notebody" class="empty">No notes yet.</div>
+  <div class="bottom">
+    <div class="col">
+      <div class="section" style="padding-bottom:6px"><h2>Moves &amp; actions <span class="hint">newest first</span></h2></div>
+      <div id="timeline"><div class="empty" style="padding:16px">No actions yet. Start the player session.</div></div>
+    </div>
+    <div class="col">
+      <div class="section" style="padding-bottom:6px"><h2>Notes</h2></div>
+      <div id="notes">
+        <div id="notetabs"></div>
+        <div id="notebody" class="empty">No notes yet.</div>
+      </div>
     </div>
   </div>
 </main>
@@ -468,11 +466,40 @@ function tileIndex(v) {   // "x,y" -> glyph
   return m;
 }
 
-function renderMap(el, v, other) {
+// Bounding box (in x/y) of everything that is not empty space, so blank margins can be cut off.
+function mapBox(v) {
+  if (!v || !v.rows.length) return null;
+  const xs = v.xs.map(x => (x === "" ? NaN : +x));
+  if (xs.some(n => !Number.isFinite(n))) return null;
+  const b = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
+  for (const r of v.rows) {
+    r.tiles.forEach((ch, c) => {
+      if (xs[c] === undefined || (ch === " " && !r.left[c] && !r.right[c] && !r.above[c] && !r.below[c])) return;
+      b.x0 = Math.min(b.x0, xs[c]); b.x1 = Math.max(b.x1, xs[c]);
+      b.y0 = Math.min(b.y0, +r.y); b.y1 = Math.max(b.y1, +r.y);
+    });
+  }
+  return b.x0 === Infinity ? null : b;
+}
+const unionBox = (a, b) => !a ? b : !b ? a : { x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1),
+  y0: Math.min(a.y0, b.y0), y1: Math.max(a.y1, b.y1) };
+
+function renderMap(el, v, other, box) {
   el.innerHTML = "";
   if (!v || !v.rows.length) { el.innerHTML = '<div class="empty">No map.</div>'; return; }
-  const w = Math.max(v.xs.length, ...v.rows.map(r => r.tiles.length));
-  el.style.gridTemplateColumns = `28px repeat(${w}, 20px)`;
+  // Columns and rows to draw: the trimmed box (by coordinates), or everything if x labels are unreadable.
+  let cols, rows;
+  if (box && v.xs.every(x => x !== "" && Number.isFinite(+x))) {
+    const idx = new Map(v.xs.map((x, c) => [+x, c]));
+    const byY = new Map(v.rows.map(r => [+r.y, r]));
+    cols = []; for (let x = box.x0; x <= box.x1; x++) cols.push({ label: String(x), c: idx.get(x) });
+    rows = []; for (let y = box.y1; y >= box.y0; y--) rows.push({ y, r: byY.get(y) });
+  } else {
+    const w = Math.max(v.xs.length, ...v.rows.map(r => r.tiles.length));
+    cols = Array.from({ length: w }, (_, c) => ({ label: v.xs[c] || "", c }));
+    rows = v.rows.map(r => ({ y: r.y, r }));
+  }
+  el.style.gridTemplateColumns = `28px repeat(${cols.length}, var(--cs, 20px))`;
   // Objects per tile (at your height) for tooltips and "something underneath" markers.
   const here = new Map();
   for (const o of v.objs || []) {
@@ -484,20 +511,22 @@ function renderMap(el, v, other) {
   const otherIdx = other ? tileIndex(other) : null;
   const frag = document.createDocumentFragment();
   const F = "var(--fence)";
-  for (const r of v.rows) {
-    const lab = document.createElement("div"); lab.className = "cell lbl"; lab.textContent = r.y;
+  for (const { y, r } of rows) {
+    const lab = document.createElement("div"); lab.className = "cell lbl"; lab.textContent = y;
     frag.appendChild(lab);
-    for (let x = 0; x < w; x++) {
-      const ch = r.tiles[x] || " ";
-      const key = `${v.xs[x]},${r.y}`;
+    for (const col of cols) {
+      const has = r && col.c !== undefined;
+      const ch = (has && r.tiles[col.c]) || " ";
+      const edge = arr => (has ? arr[col.c] : false);
+      const key = `${col.label},${y}`;
       const c = document.createElement("div");
       c.className = "cell " + tileClass(ch);
       const objs = here.get(key) || [];
       if (!TERRAIN.includes(ch)) {
         c.textContent = ch;
         const top = objs.find(o => o.g === ch);
-        const col = stateColor(top) || COLORS[ch];
-        if (col) c.style.background = col;
+        const colr = stateColor(top) || COLORS[ch];
+        if (colr) c.style.background = colr;
       }
       if (objs.length > 1 || objs.some(o => o.parts.some(p => /^(under|inside|standing on|holding)/.test(p))))
         c.classList.add("stack");
@@ -505,15 +534,15 @@ function renderMap(el, v, other) {
       if (otherIdx && otherIdx.size && otherIdx.has(key) && otherIdx.get(key) !== ch) c.classList.add("diff");
       const sh = [];
       const ec = e => e === "fence" ? [F, 3] : [GATE_COLORS[e] || GATE_COLORS["~"], 5];
-      for (const [e, dx, dy] of [[r.above[x], 0, 1], [r.below[x], 0, -1], [r.left[x], 1, 0], [r.right[x], -1, 0]])
-        if (e) { const [col, n] = ec(e); sh.push(`inset ${dx * n}px ${dy * n}px 0 ${col}`); }
+      for (const [e, dx, dy] of [[edge(r && r.above), 0, 1], [edge(r && r.below), 0, -1], [edge(r && r.left), 1, 0], [edge(r && r.right), -1, 0]])
+        if (e) { const [colr, n] = ec(e); sh.push(`inset ${dx * n}px ${dy * n}px 0 ${colr}`); }
       if (sh.length) c.style.boxShadow = sh.join(", ");
       frag.appendChild(c);
     }
   }
   const corner = document.createElement("div"); corner.className = "cell lbl"; frag.appendChild(corner);
-  for (let x = 0; x < w; x++) {
-    const c = document.createElement("div"); c.className = "cell lbl xl"; c.textContent = v.xs[x] || "";
+  for (const col of cols) {
+    const c = document.createElement("div"); c.className = "cell lbl xl"; c.textContent = col.label;
     frag.appendChild(c);
   }
   el.appendChild(frag);
@@ -548,10 +577,10 @@ function renderLegend(v) {
   }
 }
 
-function renderPanel(side, v, other) {
+function renderPanel(side, v, other, box) {
   $("where-" + side).textContent = v ? v.where : "";
   $("heroes-" + side).textContent = v && v.heroes ? "Heroes: " + v.heroes : "";
-  renderMap($("map-" + side), v, other);
+  renderMap($("map-" + side), v, other, box);
   if (side === "a") {
     const st = $("status-a");
     st.textContent = v && v.status ? v.status : "";
@@ -608,9 +637,25 @@ function sameLevel(a, b) {
   return a && b && lv(a) === lv(b);
 }
 
+// Both maps, trimmed to what is not empty. On the same level they share one box so tiles line up.
+function drawMaps() {
+  const same = sameLevel(viewA, viewB) && liveOn;
+  const bA = mapBox(viewA), bB = liveOn ? mapBox(viewB) : null;
+  const shared = same ? unionBox(bA, bB) : null;
+  renderPanel("a", viewA, null, shared || bA);
+  renderPanel("b", viewB, sameLevel(viewA, viewB) ? viewA : null, shared || bB);
+  // Cell size: as large as fits, so the two maps sit side by side without scrolling.
+  const colsOf = b => (b ? b.x1 - b.x0 + 1 : 0);
+  const n = colsOf(shared || bA) + (liveOn ? colsOf(shared || bB) : 0);
+  const left = document.querySelector(".left");
+  if (n && left) {
+    const avail = left.clientWidth - 32 - (liveOn ? 18 : 0) - 28 * (liveOn ? 2 : 1) - 2 * (n + 2);
+    document.querySelector(".maps").style.setProperty("--cs", Math.max(11, Math.min(26, Math.floor(avail / n))) + "px");
+  }
+}
+
 function redraw() {
-  renderPanel("a", viewA, null);
-  renderPanel("b", viewB, sameLevel(viewA, viewB) ? viewA : null);
+  drawMaps();
   renderLegend(viewA || viewB);
   const d = $("dialogue");
   d.style.display = viewA && viewA.dialogue.length ? "block" : "none";
@@ -651,6 +696,7 @@ function summary(e) {
     case "select_character": return `select hero ${a.number}`;
     case "write_note": return `wrote note “${a.name}”`;
     case "append_note": return `added to note “${a.name}”`;
+    case "note": return `noted (${a.kind}): ${a.text || ""}`;
     case "read_note": return `read note “${a.name}”`;
     case "list_notes": return "listed notes";
     case "world_map": return "checked world map";
@@ -679,7 +725,7 @@ function changeLines(e) {
 function addEvent(e) {
   events.push(e);
   const tl = $("timeline");
-  if (events.length === 1 || (tl.firstElementChild && tl.firstElementChild.classList.contains("empty") && e.tool !== "say")) tl.innerHTML = "";
+  if (events.length === 1 || (tl.firstElementChild && tl.firstElementChild.classList.contains("empty"))) tl.innerHTML = "";
   const el = document.createElement("div");
   const res = e.result || "";
   const isErr = res.startsWith("error");
@@ -694,49 +740,11 @@ function addEvent(e) {
   const chg = changeLines(e);
   const c = el.querySelector(".chg");
   if (chg) c.textContent = chg; else c.remove();
-  if (e.tool === "say") { renderTalk(); return; }
+  if (e.tool === "say") { tl.prepend(el); return; }   // the agent's own words: listed with the actions
   el.onclick = () => { follow = false; $("follow").classList.remove("active"); showStep(+el.dataset.i); };
   tl.prepend(el);
   const v = parseView(res);
   if (v && v.where) $("level").textContent = v.where.replace(/^Puzzle level /, "").split(",")[0].replace(/'/g, "");
-}
-
-let voiceLines = null;   // from /voice: every line said, with its voice state
-let talkKey = "";
-async function pollVoice() {
-  try {
-    const rows = await (await fetch(`/voice?${Q}`)).json();
-    if (rows.length) { voiceLines = rows; renderTalk(); }
-  } catch (err) {}
-}
-
-function renderTalk() {
-  // Prefer the speech log (has voice state); fall back to `say` calls in the action log.
-  const rows = voiceLines || events.filter(e => e.tool === "say")
-    .map(e => ({ t: e.t, text: (e.args || {}).text || "", state: "" }));
-  const now = Date.now() / 1000;
-  const view = rows.map(l => ({ ...l, speaking: l.state === "speaking" && (!l.ends || now < l.ends + 0.5) }));
-  const key = JSON.stringify(view.map(l => [l.text, l.state, l.speaking]));
-  if (key === talkKey) return;
-  talkKey = key;
-  const box = $("talk");
-  $("talkcount").textContent = rows.length;
-  if (!rows.length) return;
-  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  box.innerHTML = "";
-  for (const l of view) {
-    const d = document.createElement("div");
-    d.className = "say" + (l.speaking ? " speaking" : "") + (l.state === "skipped" ? " skipped" : "")
-      + (l.state === "failed" ? " failed" : "");
-    const t = document.createElement("div"); t.className = "t";
-    const time = document.createElement("span"); time.textContent = new Date(l.t * 1000).toLocaleTimeString();
-    const st = document.createElement("span"); st.className = "st";
-    t.append(time, st);
-    const txt = document.createElement("div"); txt.className = "txt"; txt.textContent = l.text;
-    d.append(t, txt);
-    box.appendChild(d);
-  }
-  if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
 async function poll() {
@@ -764,7 +772,7 @@ async function pollLive() {
     if (v) {
       viewB = v;
       $("livetag").textContent = "live · " + new Date().toLocaleTimeString();
-      renderPanel("b", viewB, sameLevel(viewA, viewB) ? viewA : null);
+      drawMaps();
       if (!viewA) renderLegend(viewB);
       if (stateSrc === "b") renderState();
     } else {
@@ -810,9 +818,9 @@ $("follow").onclick = () => {
   $("follow").classList.toggle("active", follow);
   if (follow) showStep(events.length - 1);
 };
+window.addEventListener("resize", () => { if (viewA || viewB) drawMaps(); });
 poll(); pollNotes(); pollLive();
 setInterval(poll, 700);
-pollVoice(); setInterval(pollVoice, 500);
 setInterval(pollNotes, 3000);
 setInterval(pollLive, 1000);
 </script>
@@ -955,7 +963,7 @@ setInterval(pollLive, 1000);
 (() => {
   if (MODE !== "api" || !RUN) return;
   const $ = id => document.getElementById(id);
-  $("msgbtn").style.display = "";
+  document.body.classList.add("hasmsgs");   // shows the side panel
   let tab = "transcript", transcript = [], ctxKey = "", timer = null;
   const openKeys = new Set();
 
@@ -1001,8 +1009,9 @@ setInterval(pollLive, 1000);
     return el;
   }
   const list = () => $("msglist");
-  const stick = () => $("msgwrap").checked && (list().scrollTop = list().scrollHeight);
-  const atBottom = () => list().scrollHeight - list().scrollTop - list().clientHeight < 60;
+  // Newest message on top: new cards are added at the top, and the list stays there unless you scrolled down.
+  const stick = () => $("msgwrap").checked && (list().scrollTop = 0);
+  const atBottom = () => list().scrollTop < 60;
 
   async function pollTranscript() {
     const fresh = await (await fetch(`/messages?${Q}&from=${transcript.length}`)).json();
@@ -1010,7 +1019,7 @@ setInterval(pollLive, 1000);
     const follow = atBottom();
     for (const m of fresh) {
       transcript.push(m);
-      list().appendChild(card(m, "t" + m.i));
+      list().prepend(card(m, "t" + m.i));
     }
     const u = transcript.filter(m => m.usage).reduce((a, m) => ({ i: a.i + m.usage.prompt, o: a.o + m.usage.completion,
       c: a.c + m.usage.cached, $: a.$ + (+m.usage.cost || 0) }), { i: 0, o: 0, c: 0, $: 0 });
@@ -1025,7 +1034,7 @@ setInterval(pollLive, 1000);
     ctxKey = key;
     const follow = atBottom();
     list().innerHTML = "";
-    msgs.forEach((m, i) => list().appendChild(card(m, "c" + i)));
+    for (let i = msgs.length - 1; i >= 0; i--) list().appendChild(card(msgs[i], "c" + i));
     const chars = msgs.reduce((a, m) => a + body(m).length, 0);
     $("msgstats").textContent = `${msgs.length} messages · ~${Math.round(chars / 4)} tokens (estimate)`;
     if (follow) stick();
@@ -1037,8 +1046,7 @@ setInterval(pollLive, 1000);
     $("mt-context").classList.toggle("active", t === "context");
     poll().then(stick);
   }
-  $("msgbtn").onclick = () => { $("msgpanel").classList.add("open"); setTab(tab); timer = setInterval(poll, 1500); };
-  $("msgclose").onclick = () => { $("msgpanel").classList.remove("open"); clearInterval(timer); };
+  setTab(tab); timer = setInterval(poll, 1500);
   $("mt-transcript").onclick = () => setTab("transcript");
   $("mt-context").onclick = () => setTab("context");
 })();
