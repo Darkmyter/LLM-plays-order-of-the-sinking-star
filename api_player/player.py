@@ -37,8 +37,17 @@ TOOLS = [
         "name": "world_map", "description": "Discovered areas and teleporters (open world only).",
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
+        "name": "note",
+        "description": "Add one line to your notes (shown at the top of every turn). kind 'seen': something "
+                       "you directly observed, with where. kind 'believe': a guess or a general rule, with how "
+                       "sure you are. Cheap, so use it the moment you learn or guess something.",
+        "parameters": {"type": "object", "properties": {
+            "kind": {"type": "string", "enum": ["seen", "believe"]}, "text": {"type": "string"}},
+            "required": ["kind", "text"]}}},
+    {"type": "function", "function": {
         "name": "write_note",
-        "description": "Replace your notes (markdown). They are shown at the top of every turn.",
+        "description": "Replace all your notes (markdown): use it to tidy them, e.g. merge lines, drop guesses "
+                       "that turned out wrong. Keep the '## Seen' and '## Believe' sections.",
         "parameters": {"type": "object", "properties": {"text": {"type": "string"}},
                        "required": ["text"]}}},
 ]
@@ -54,6 +63,8 @@ class Run:
         self.messages = []
         self.turns = 0
         self.last_note_turn = 0
+        self.last_nudge_turn = 0
+        self.seen_kinds, self.seen_stops = set(), set()
         self.notes = ""
         self.status = "idle"
         self.last_line = ""
@@ -125,6 +136,8 @@ class Run:
             elif name == "write_note":
                 self.notes = str(args.get("text", ""))
                 result = f"notes saved ({len(self.notes)} chars)"
+            elif name == "note":
+                result = self.add_note(str(args.get("kind", "")), str(args.get("text", "")))
             else:
                 result = f"unknown tool {name}"
         except Exception as e:  # game closed or restarted: reconnect on the next call
@@ -133,6 +146,47 @@ class Run:
         self.log({"t": t0, "ms": round((time.time() - t0) * 1000), "tool": name, "args": args,
                   "result": result})
         return result
+
+    def add_note(self, kind, text):
+        """Append one bullet to the '## Seen' or '## Believe' section of the notes (created if missing)."""
+        if kind not in ("seen", "believe") or not text.strip():
+            return "note needs kind 'seen' or 'believe' and some text"
+        head = "## Seen" if kind == "seen" else "## Believe"
+        lines = self.notes.rstrip().split("\n") if self.notes.strip() else []
+        at = next((i for i, l in enumerate(lines) if l.strip() == head), None)
+        if at is None:
+            lines += ([""] if lines else []) + [head]
+            at = len(lines) - 1
+        end = at + 1
+        while end < len(lines) and not lines[end].startswith("## "):
+            end += 1
+        while end - 1 > at and not lines[end - 1].strip():
+            end -= 1
+        lines.insert(end, f"- (turn {self.turns}) {text.strip()}")
+        self.notes = "\n".join(lines) + "\n"
+        return f"noted under {head[3:]}"
+
+    def nudges(self, result):
+        """Neutral prompts to learn from what just happened. They say nothing about how the game works."""
+        out = []
+        m = re.search(r"you were stopped after \d+ of \d+ step\(s\) \w+: ([^\n]*)", result)
+        if m:
+            reason = re.sub(r"\s*\(.*$", "", m.group(1))  # drop the "(it did not move; ...)" detail
+            kind = re.sub(r"\d+", "N", re.sub(r"\b(north|south|east|west)\b", "D", reason)).strip()
+            pos = re.search(r"@ Hero[^\n]*? at \((-?\d+),(-?\d+)", result)
+            key = (pos.groups() if pos else None, kind)
+            if kind not in self.seen_kinds:
+                self.seen_kinds.add(kind)
+                out.append("(A kind of stop you have not met before. If it taught you something, "
+                           "record it with note().)")
+            elif key in self.seen_stops:
+                out.append("(This exact stop has happened on this tile before.)")
+            self.seen_stops.add(key)
+        if self.turns - max(self.last_note_turn, self.last_nudge_turn) >= 15:
+            self.last_nudge_turn = self.turns
+            out.append("(You have not touched your notes for a while. Anything seen or guessed since? "
+                       "note() takes one line.)")
+        return ("\n" + "\n".join(out)) if out else ""
 
     def add_floor_rows(self, result):
         """Append the exact floor coordinates to a view (see game_state.floor_rows). It goes inside
@@ -256,12 +310,11 @@ class Run:
                 args = json.loads(c.function.arguments or "{}")
             except ValueError:
                 args = {}
-            if c.function.name == "write_note":
+            if c.function.name in ("write_note", "note"):
                 self.last_note_turn = self.turns
             self.set_phase(f"running {c.function.name} in the game")
             out = compact_result(self.add_floor_rows(self.call_tool(c.function.name, args)))
-            if self.turns - self.last_note_turn >= 10:
-                out += "\n(Reminder: update your notes with write_note: goal, confirmed rules, tried, next.)"
+            out += self.nudges(out)
             self.add({"role": "tool", "tool_call_id": c.id, "content": out}, name=c.function.name)
         self.last_line = (f"turn {self.turns}: prompt={u.prompt_tokens} "
                           f"out={u.completion_tokens} total_cost=${self.usage.cost:.4f}")
