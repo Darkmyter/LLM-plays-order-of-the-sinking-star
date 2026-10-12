@@ -96,6 +96,34 @@ OUTFIT = {"MULTIPUSH": "the Warrior's outfit (red)", "PULL": "the Thief's outfit
           "SAILOR": "the Sailor's outfit", "TRADER": "the Trader's outfit"}
 
 
+COMPASS8 = ["east", "north-east", "north", "north-west", "west", "south-west", "south", "south-east"]
+# A mirror's stored orientation is not the way it looks: with the identity orientation (yaw 0, which reads as
+# "east") the mirror is drawn as a diagonal slab whose front faces south-west. Seen in mirror_1 (one sample);
+# used only when the game has no mirage to read the real side from.
+MIRROR_FRONT_OFFSET = 225
+
+
+def compass8(angle):
+    """Angle in degrees (0 = east, 90 = north) -> 'north-east' etc., or '37deg' when it is not a multiple of 45."""
+    angle %= 360
+    i = round(angle / 45)
+    return COMPASS8[i % 8] if abs(angle - 45 * i) < 8 else f"{angle:.0f}deg"
+
+
+def mirror_front(yaw, mirage):
+    """Compass angle of the side a mirror's front faces. Prefer the game's own mirage (the reflection it
+    computed for a hero in front of the mirror), else guess from the stored yaw."""
+    front = (yaw + MIRROR_FRONT_OFFSET) % 360
+    m = mirage and mirage["m"]
+    if m and abs(m[0] + m[4]) < 0.05 and abs(m[1] - m[3]) < 0.05 and abs(m[0] * m[4] - m[1] * m[3] + 1) < 0.1:
+        # The mirage matrix reflects across a line; the mirror's plane is perpendicular to the line's direction.
+        phi = math.degrees(math.atan2(m[1], m[0])) / 2
+        sx, sy = mirage["source"][0] - mirage["mirror"][0], mirage["source"][1] - mirage["mirror"][1]
+        if abs(sx) + abs(sy) > 0.01:
+            front = phi if sx * math.cos(math.radians(phi)) + sy * math.sin(math.radians(phi)) > 0 else phi + 180
+    return front % 360
+
+
 def facing(q):
     """Quaternion (x,y,z,w) -> compass direction of the object's yaw (0 deg = east, +x)."""
     x, y, z, w = q
@@ -270,6 +298,16 @@ class Game:
             return next((k for k, x in vals.items() if x == v), v)
         return None
 
+    def read_mirage(self, mirror_buf, mirror_id):
+        """The mirage the game last computed for this mirror (offsets from types.json, struct Mirage), or None."""
+        ptr = struct.unpack_from("<Q", mirror_buf, self.types.fields("Mirror")["most_recent_mirage"][1])[0]
+        mb = self.p.read(ptr, 168) if ptr else None
+        if not mb or len(mb) < 168 or struct.unpack_from("<I", mb, 0)[0] != mirror_id:
+            return None
+        return {"active": bool(mb[28]), "source": struct.unpack_from("<3f", mb, 48),
+                "target": struct.unpack_from("<3f", mb, 60), "mirror": struct.unpack_from("<3f", mb, 84),
+                "m": struct.unpack_from("<9f", mb, 132)}
+
     def read_entity(self, addr, kind):
         b = self.p.read(addr, max(self.types.size(kind), ENTITY_SIZE))
         if not b:
@@ -294,6 +332,13 @@ class Game:
         }
         if kind in FACING_KINDS:
             e["facing"] = facing(struct.unpack_from("<4f", b, ORIENTATION))
+        if kind == "Mirror":
+            qx, qy, qz, qw = struct.unpack_from("<4f", b, ORIENTATION)
+            mirage = self.read_mirage(b, e["id"])
+            e["facing"] = compass8(mirror_front(math.degrees(2 * math.atan2(qz, qw)), mirage))
+            if mirage and mirage["active"]:    # the game shows a ghost and a prompt for a hero in front of it
+                e["mirage"] = {"from": tuple(round(v) for v in mirage["source"][:2]),
+                               "to": tuple(round(v) for v in mirage["target"][:2])}
         fields = self.types.fields(kind)
         if self.full:
             wanted = [f for f in fields if not f.startswith(("XXX", "xxx"))]
@@ -887,6 +932,11 @@ def render(state, numbered=None):
             tx, ty = round(o["pos"][0]) + dx, round(o["pos"][1]) + dy
             extra.append(f"outfit gate on the edge between ({x},{y}) and ({tx},{ty}); "
                          f"walk through to wear it")
+        elif o["kind"] == "Mirror" and o.get("facing"):
+            extra.append(f"its front faces {o['facing']}")
+            if o.get("mirage"):
+                extra.append(f"the game shows a teleport indicator: the hero at {o['mirage']['from']} "
+                             f"appears at {o['mirage']['to']}")
         elif o.get("facing"):
             extra.append(f"facing {o['facing']}")
         for flag in ("dead", "falling"):
