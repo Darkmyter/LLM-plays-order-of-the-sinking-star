@@ -80,6 +80,7 @@ h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing
 .obj { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 4px;
   border-left: 3px solid transparent; font-size: 13px; flex-wrap: wrap; }
 .obj.changed { border-left-color: var(--accent); background: #f5c54212; }
+.obj .badge { white-space: normal; max-width: 100%; }
 .obj .chip { width: 18px; height: 18px; font: 600 11px/1 ui-monospace, Consolas, monospace; }
 .obj .name { font-weight: 600; min-width: 92px; }
 .obj .at { color: var(--muted); font: 12px ui-monospace, Consolas, monospace; min-width: 84px; }
@@ -304,7 +305,7 @@ const Q = `mode=${encodeURIComponent(MODE)}&run=${encodeURIComponent(RUN)}`;
 </script>
 <script>
 const events = [];
-let selected = null, follow = true, noteSel = "progress.md", liveOn = true, stateSrc = "a";
+let selected = null, follow = true, noteSel = "progress.md", liveOn = true, stateSrc = "b";   // objects list: "b" = the game right now (default), "a" = what the player saw
 let viewA = null, viewAprev = null, viewB = null, liveBusy = false;
 const $ = id => document.getElementById(id);
 
@@ -606,10 +607,11 @@ function renderPanel(side, v, other, box) {
 }
 
 function renderState() {
-  const v = stateSrc === "a" ? viewA : viewB;
-  const prev = stateSrc === "a" ? viewAprev : viewA;
-  $("statesrc").textContent = stateSrc === "a" ? "as the player saw them" : "game right now";
-  $("srcbtn").textContent = stateSrc === "a" ? "show game now" : "show what the player saw";
+  const src = stateSrc === "b" && !viewB ? "a" : stateSrc;   // the game can't be read: fall back to the player's step
+  const v = src === "a" ? viewA : viewB;
+  const prev = src === "a" ? viewAprev : viewA;
+  $("statesrc").textContent = src === "a" ? "as the player saw them" : "game right now";
+  $("srcbtn").textContent = src === "a" ? "show game now" : "show what the player saw";
   const box = $("state");
   box.innerHTML = "";
   $("fences").textContent = v && v.fences ? "Fences: " + v.fences : "";
