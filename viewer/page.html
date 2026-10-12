@@ -136,6 +136,8 @@ body.stage-landing, body.stage-picker { display: block; height: auto; overflow: 
   width: min(720px, 92vw); }
 .modal textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
   border-radius: 6px; padding: 8px; font: 13px/1.4 ui-monospace, Consolas, monospace; margin-bottom: 10px; }
+select.effort { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+  padding: 4px 6px; font: inherit; font-size: 12px; }
 .runctl { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 a.pill { text-decoration: none; cursor: pointer; }
 .msghead { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line);
@@ -195,6 +197,7 @@ table.st td.cell { text-align: center; }
     <input id="newname" placeholder="name (optional)" size="24">
     <input id="newmodel" list="newmodels" placeholder="model id" size="32" style="display:none">
     <datalist id="newmodels"></datalist>
+    <select id="neweffort" class="effort" style="display:none" title="Reasoning effort for the model (how much it thinks before acting)"></select>
     <button id="newbtn">Start new run</button>
   </div>
   <p class="hint" id="newhint"></p>
@@ -863,10 +866,12 @@ setInterval(pollLive, 1000);
     }
     if (MODE === "api") {
       $("newmodel").style.display = "";
+      $("neweffort").style.display = "";
       try {
         const d = await j(CONTROL + "/defaults");
         $("newmodels").innerHTML = d.suggested.map(m => `<option value="${m}">`).join("");
         $("newmodel").value = d.model;
+        fillEffort($("neweffort"), d, "");
       } catch (e) { $("pickerwarn").textContent = "API player control server is not running (uv run python -m api_player.control)."; }
     }
     $("newbtn").onclick = async () => {
@@ -876,7 +881,8 @@ setInterval(pollLive, 1000);
         return r.error ? alert(r.error) : go(r.name, "&prompt=1");
       }
       try {
-        const r = await post(CONTROL + "/new", { name, model: $("newmodel").value.trim() || undefined });
+        const r = await post(CONTROL + "/new", { name, model: $("newmodel").value.trim() || undefined,
+          effort: $("neweffort").value });
         r.error ? alert(r.error) : go(r.active);
       } catch (e) { alert("API player control server is not running."); }
     };
@@ -902,14 +908,23 @@ setInterval(pollLive, 1000);
     if (_p.get("prompt")) show();
   }
 
+  // Effort selector: "" means the config.toml default (named in the first option).
+  function fillEffort(sel, d, current) {
+    sel.innerHTML = `<option value="">effort: default${d.effort ? " (" + d.effort + ")" : ""}</option>`
+      + d.efforts.map(e => `<option value="${e}">effort: ${e}</option>`).join("");
+    sel.value = current;
+  }
+
   // ----- api player: start / pause / stop -----
   function apiControls(meta) {
     $("runctl").innerHTML = `<span class="pill live" id="apiphase" style="display:none"><span class="dot" id="phasedot"></span><span id="phasetext"></span></span>
       <span class="pill" id="apiinfo"></span>
       <input id="apimodel" list="apimodels" placeholder="model id" size="30" title="OpenRouter model id; changing it while running applies on the next turn">
       <datalist id="apimodels"></datalist>
+      <select id="apieffort" class="effort" title="Reasoning effort: how much the model thinks before acting. Changing it while running applies on the next turn"></select>
       <button id="apistart">Start</button><button id="apipause">Pause</button><button id="apistop">Stop</button>`;
     $("apimodel").value = meta.model || "";
+    fillEffort($("apieffort"), { efforts: ["none", "minimal", "low", "medium", "high", "xhigh"], effort: "" }, meta.effort || "");
     let st = {};
     const mine = () => st.active === RUN;
     const live = () => mine() && (st.status === "running" || st.status === "paused");
@@ -938,12 +953,15 @@ setInterval(pollLive, 1000);
     setInterval(tick, 500);
     const poll = async () => { try { st = await j(CONTROL + "/status"); polledAt = Date.now(); } catch (e) { st = {}; } draw(); tick(); };
     j(CONTROL + "/defaults").then(d => { $("apimodels").innerHTML = d.suggested.map(m => `<option value="${m}">`).join("");
-      if (!$("apimodel").value) $("apimodel").value = d.model; }).catch(() => {});
-    $("apistart").onclick = async () => { const r = await post(CONTROL + "/resume", { name: RUN, model: $("apimodel").value.trim() || undefined });
+      if (!$("apimodel").value) $("apimodel").value = d.model;
+      fillEffort($("apieffort"), d, meta.effort || ""); }).catch(() => {});
+    $("apistart").onclick = async () => { const r = await post(CONTROL + "/resume", { name: RUN, model: $("apimodel").value.trim() || undefined,
+      effort: $("apieffort").value });
       if (r.error) alert(r.error); poll(); };
     $("apipause").onclick = () => post(CONTROL + (st.status === "paused" ? "/unpause" : "/pause")).then(poll);
     $("apistop").onclick = () => post(CONTROL + "/stop").then(poll);
     $("apimodel").onchange = () => { if (live()) post(CONTROL + "/config", { model: $("apimodel").value.trim() }); };
+    $("apieffort").onchange = () => { if (live()) post(CONTROL + "/config", { effort: $("apieffort").value }); };
     poll(); setInterval(poll, 1500);
   }
 

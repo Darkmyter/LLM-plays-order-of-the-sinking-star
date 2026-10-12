@@ -7,7 +7,7 @@ GET  /status               -> the active run's live status
 POST /new     {name?, model?}   create a run and start it
 POST /resume  {name}            load an existing run and start it
 POST /pause | /unpause | /stop
-POST /config  {model}           change the model for the active run (takes effect next turn)
+POST /config  {model?, effort?} change the model / reasoning effort for the active run (next turn)
 Local only.
 """
 import json
@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api_player.llm import load_config  # noqa: E402
-from api_player.player import MODE, Run  # noqa: E402
+from api_player.player import EFFORTS, MODE, Run  # noqa: E402
 from game import runs  # noqa: E402
 
 PORT = 8766
@@ -30,13 +30,13 @@ def status():
     if active is None:
         return {"active": None}
     u = active.usage
-    return {"active": active.name, "status": active.status, "model": active.cfg["model"],
+    return {"active": active.name, "status": active.status, "model": active.cfg["model"], "effort": active.effort,
             "turns": active.turns, "last": active.last_line, "prompt": u.prompt,
             "cached": u.cached, "completion": u.completion, "cost": round(u.cost, 4),
             "phase": active.phase, "phase_for": round(time.time() - active.phase_since, 1)}
 
 
-def start_run(name, create, model=None):
+def start_run(name, create, model=None, effort=None):
     global active
     if active is not None and active.thread and active.thread.is_alive():
         return {"error": f"run '{active.name}' is still running; stop it first"}
@@ -49,6 +49,8 @@ def start_run(name, create, model=None):
     if not create and not runs.exists(MODE, name):
         return {"error": f"no run named '{name}'"}
     active = Run(name, cfg, create=create)  # a resumed run uses the model from config.toml unless given
+    if effort is not None:                  # "" = the config.toml default
+        active.effort = effort if effort in EFFORTS else ""
     active.start()
     return status()
 
@@ -78,7 +80,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(runs.list_runs(MODE))
         elif self.path == "/defaults":
             cfg = load_config()
-            self.reply({"model": cfg["model"], "suggested": cfg.get("suggested_models", [])})
+            self.reply({"model": cfg["model"], "suggested": cfg.get("suggested_models", []),
+                        "efforts": list(EFFORTS), "effort": (cfg.get("reasoning") or {}).get("effort", "")})
         elif self.path == "/status":
             self.reply(status())
         else:
@@ -92,9 +95,9 @@ class Handler(BaseHTTPRequestHandler):
             body = {}
         p = self.path
         if p == "/new":
-            self.reply(start_run(body.get("name"), True, body.get("model")))
+            self.reply(start_run(body.get("name"), True, body.get("model"), body.get("effort")))
         elif p == "/resume":
-            self.reply(start_run(body.get("name"), False, body.get("model")))
+            self.reply(start_run(body.get("name"), False, body.get("model"), body.get("effort")))
         elif active is None:
             self.reply({"error": "no active run"}, 409)
         elif p == "/pause":
@@ -109,6 +112,8 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config":
             if body.get("model"):
                 active.cfg["model"] = body["model"]
+            if "effort" in body:
+                active.effort = body["effort"] if body["effort"] in EFFORTS else ""
             self.reply(status())
         else:
             self.reply({"error": "not found"}, 404)

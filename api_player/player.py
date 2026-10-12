@@ -20,6 +20,7 @@ from api_player.llm import Usage, load_config, make_client  # noqa: E402
 from game import runs  # noqa: E402
 
 MODE = "api"
+EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
 
 TOOLS = [
     {"type": "function", "function": {
@@ -65,6 +66,7 @@ class Run:
         self.last_note_turn = 0
         self.last_nudge_turn = 0
         self.seen_kinds, self.seen_stops = set(), set()
+        self.effort = ""          # reasoning effort for this run; "" = the config.toml default
         self.notes = ""
         self.status = "idle"
         self.last_line = ""
@@ -86,6 +88,7 @@ class Run:
     def _load(self):
         meta = runs.read_meta(MODE, self.name)
         self.turns = meta.get("turns", 0)
+        self.effort = meta.get("effort", "")
         for k, v in meta.get("usage", {}).items():
             setattr(self.usage, k, v)
         for fname, attr, default in (("history.json", "messages", []), ("notes.md", "notes", "")):
@@ -101,7 +104,7 @@ class Run:
         with open(self._path("notes.md"), "w", encoding="utf-8") as f:
             f.write(self.notes)
         u = self.usage
-        runs.write_meta(MODE, self.name, model=self.cfg["model"], turns=self.turns,
+        runs.write_meta(MODE, self.name, model=self.cfg["model"], effort=self.effort, turns=self.turns,
                         status=self.status,
                         usage={"prompt": u.prompt, "cached": u.cached, "completion": u.completion,
                                "cost": u.cost, "calls": u.calls})
@@ -278,12 +281,13 @@ class Run:
     def step(self, client):
         self.prune()
         self.set_phase("waiting for the model")
+        # The run's own effort (set in the viewer) wins over the config.toml default.
+        reasoning = {"effort": self.effort} if self.effort in EFFORTS else self.cfg.get("reasoning")
         resp = client.chat.completions.create(
             model=self.cfg["model"], messages=self.build_messages(), tools=TOOLS,
             temperature=self.cfg.get("temperature", 0.3),
             max_tokens=self.cfg.get("max_output_tokens", 4000),
-            extra_body={"usage": {"include": True}, **({"reasoning": self.cfg["reasoning"]}
-                                                       if self.cfg.get("reasoning") else {})})
+            extra_body={"usage": {"include": True}, **({"reasoning": reasoning} if reasoning else {})})
         self.usage.add(resp.usage)
         self.turns += 1
         choice = resp.choices[0]
