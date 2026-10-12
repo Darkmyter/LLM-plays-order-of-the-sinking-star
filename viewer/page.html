@@ -1,0 +1,1012 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sinking Star Live</title>
+<style>
+:root {
+  --bg: #0f1216; --panel: #161b22; --panel2: #1c232c; --line: #2a333f;
+  --text: #d7dde5; --muted: #8a96a6; --accent: #f5c542; --good: #5fd38d; --bad: #ff6b6b;
+  --info: #9db7ff; --wall: #3a4554; --floor: #222a34; --void: #0f1216; --fence: #ff9f43;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; height: 100vh;
+  display: grid; grid-template-rows: auto 1fr; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.pill { padding: 2px 10px; border-radius: 99px; background: var(--panel2); color: var(--muted);
+  font-size: 12px; border: 1px solid var(--line); white-space: nowrap; }
+.pill.live2 { border-color: var(--info); color: var(--info); }
+.pill b { color: var(--text); font-weight: 600; }
+.live { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.on { background: var(--good); box-shadow: 0 0 8px var(--good); }
+.spacer { flex: 1; }
+button { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; }
+button.active { border-color: var(--accent); color: var(--accent); }
+main { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(260px, .75fr) minmax(300px, 1fr); min-height: 0; }
+.col { min-height: 0; display: flex; flex-direction: column; }
+.col + .col { border-left: 1px solid var(--line); }
+.left { overflow: auto; }
+.section { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.maps { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+.mappanel { min-width: 0; }
+.mappanel .where { font-weight: 600; margin-bottom: 2px; }
+.mappanel .heroes { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.mappanel .status { font-size: 12px; margin-top: 6px; color: var(--muted); }
+.mappanel .status.busy { color: var(--bad); }
+#dialogue { margin: 10px 0 0; padding: 8px 12px; border-left: 3px solid var(--accent);
+  background: var(--panel2); border-radius: 4px; white-space: pre-wrap; display: none; }
+.mapwrap { overflow: auto; padding-bottom: 6px; max-width: 100%; }
+.map { display: grid; gap: 2px; width: max-content; font: 600 12px/1 ui-monospace, Consolas, monospace; }
+.cell { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+  border-radius: 2px; position: relative; }
+.small .cell { width: 15px; height: 15px; font-size: 10px; }
+.lbl { color: var(--muted); font-weight: 400; font-size: 10px; }
+.xl { font-size: 9px; letter-spacing: -0.5px; }
+.c-wall { background: var(--wall); }
+.c-wall2 { background: #303a47; }
+.c-wall1 { background: #29323d; box-shadow: inset 0 0 0 1px #3a4554; }
+.c-floor { background: var(--floor); }
+.c-void { background: transparent; }
+.c-obj { background: var(--floor); color: #000; }
+.c-hero { background: var(--accent); color: #000; box-shadow: 0 0 0 2px #fff6 inset; }
+.c-hero2 { background: #e0a43a; color: #000; outline: 2px solid #fff4; }
+.cell.stack::after { content: ""; position: absolute; right: 1px; top: 1px; width: 6px; height: 6px;
+  border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px #000; }
+.cell.diff { outline: 2px solid var(--bad); outline-offset: -1px; z-index: 1; }
+#legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 0; font-size: 12px; }
+#legend .item { display: inline-flex; align-items: center; gap: 6px; color: var(--text); }
+#legend .cell { width: 16px; height: 16px; font-size: 10px; }
+.state { display: grid; gap: 10px; }
+.group h3 { margin: 0 0 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.obj { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 4px;
+  border-left: 3px solid transparent; font-size: 13px; flex-wrap: wrap; }
+.obj.changed { border-left-color: var(--accent); background: #f5c54212; }
+.obj .chip { width: 18px; height: 18px; font: 600 11px/1 ui-monospace, Consolas, monospace; }
+.obj .name { font-weight: 600; min-width: 92px; }
+.obj .at { color: var(--muted); font: 12px ui-monospace, Consolas, monospace; min-width: 84px; }
+.badge { font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line);
+  color: var(--muted); white-space: nowrap; }
+.badge.good { color: var(--good); border-color: #5fd38d66; background: #5fd38d14; }
+.badge.bad { color: var(--bad); border-color: #ff6b6b55; background: #ff6b6b10; }
+.badge.info { color: var(--info); border-color: #9db7ff55; background: #9db7ff12; }
+.badge.you { color: #000; background: var(--accent); border-color: var(--accent); }
+.fencetext { color: var(--muted); font: 12px ui-monospace, Consolas, monospace; margin-top: 6px; }
+#timeline { overflow: auto; flex: 1; padding: 6px 0; }
+.ev { padding: 8px 16px; border-left: 3px solid transparent; cursor: pointer; }
+.ev:hover { background: var(--panel); }
+.ev.sel { background: var(--panel2); border-left-color: var(--accent); }
+.ev .top { display: flex; gap: 8px; align-items: baseline; }
+.ev .n { color: var(--muted); font-size: 11px; min-width: 34px; font-variant-numeric: tabular-nums; }
+.ev .what { font-weight: 600; }
+.ev .time { margin-left: auto; color: var(--muted); font-size: 11px; }
+.ev .chg { margin: 3px 0 0 42px; color: var(--muted); font: 12px/1.5 ui-monospace, Consolas, monospace;
+  white-space: pre-wrap; }
+.ev.err .what, .ev.warn .what { color: var(--bad); }
+.ev.note .what { color: var(--info); }
+.ev.level { border-left-color: var(--good); }
+.ev.say { cursor: default; }
+.ev.say .what { font-weight: 400; font-style: italic; color: #ffe8a3; white-space: pre-wrap; }
+#talk { overflow: auto; flex: 1; padding: 6px 0 12px; }
+.say { padding: 8px 16px; border-left: 3px solid transparent; }
+.say .t { color: var(--muted); font-size: 11px; display: flex; gap: 8px; }
+.say .t .st { margin-left: auto; }
+.say .txt { color: #ffe8a3; font-size: 15px; line-height: 1.45; margin-top: 2px; }
+.say.speaking { border-left-color: var(--accent); background: #f5c54214; }
+.say.speaking .st::before { content: "\1F50A  speaking"; color: var(--accent); }
+.say.skipped .txt { opacity: .45; text-decoration: line-through; }
+.say.skipped .st::before { content: "skipped"; }
+.say.failed .st::before { content: "voice failed"; color: var(--bad); }
+#notes { height: 38%; min-height: 160px; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+#notetabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 16px 0; }
+#notebody { flex: 1; overflow: auto; padding: 10px 16px; white-space: pre-wrap;
+  font: 12px/1.55 ui-monospace, Consolas, monospace; color: var(--text); }
+.empty { color: var(--muted); padding: 8px 0; }
+@media (max-width: 1000px) {
+  main { grid-template-columns: 1fr; }
+  .col + .col { border-left: 0; border-top: 1px solid var(--line); }
+}
+.screen { display: none; padding: 32px 24px; max-width: 760px; margin: 0 auto; width: 100%; }
+body.stage-landing #landing, body.stage-picker #picker { display: block; }
+body.stage-landing header, body.stage-landing main, body.stage-picker header, body.stage-picker main { display: none; }
+body.stage-landing, body.stage-picker { display: block; height: auto; overflow: auto; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px;
+  color: var(--text); text-decoration: none; display: flex; flex-direction: column; gap: 8px; }
+.card:hover { border-color: var(--accent); }
+.card b { font-size: 17px; } .card span { color: var(--muted); }
+#runlist { display: flex; flex-direction: column; gap: 8px; margin: 16px 0 24px; }
+.runrow { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px;
+  display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.runrow:hover { border-color: var(--accent); }
+.runrow .meta { color: var(--muted); font-size: 12px; flex: 1; }
+.newrun { display: flex; gap: 8px; flex-wrap: wrap; }
+.warn { color: var(--bad); } .hint { color: var(--muted); font-size: 13px; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); max-width: none; padding: 0; }
+.modal.open { display: flex; align-items: center; justify-content: center; }
+.modal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px;
+  width: min(720px, 92vw); }
+.modal textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px; font: 13px/1.4 ui-monospace, Consolas, monospace; margin-bottom: 10px; }
+.runctl { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+a.pill { text-decoration: none; cursor: pointer; }
+.msgs { position: fixed; inset: 0; z-index: 20; max-width: none; margin: 0; padding: 0; background: var(--bg);
+  flex-direction: column; }
+.msgs.open { display: flex; }
+.msghead { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line);
+  background: var(--panel); }
+.msghead h2 { margin: 0 8px 0 0; font-size: 15px; }
+#msglist { flex: 1; overflow: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.m { border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px; background: var(--panel); }
+.m .mh { display: flex; gap: 10px; align-items: center; padding: 5px 10px; cursor: pointer; font-size: 12px;
+  color: var(--muted); }
+.m .mh b { color: var(--text); text-transform: uppercase; letter-spacing: .04em; }
+.m .mh .sum { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m pre { margin: 0; padding: 8px 10px; border-top: 1px solid var(--line); white-space: pre-wrap; word-break: break-word;
+  font: 12px/1.5 ui-monospace, Consolas, monospace; max-height: 420px; overflow: auto; display: none; }
+.m.open pre { display: block; }
+.m.system { border-left-color: var(--muted); } .m.user { border-left-color: var(--info); }
+.m.assistant { border-left-color: var(--accent); } .m.tool { border-left-color: var(--good); }
+.m.event { border-left-color: var(--fence); border-style: dashed; }
+.m.tool.stub .sum { opacity: .6; }
+.m.err { border-color: var(--bad); }
+</style></head>
+<body>
+<div id="landing" class="screen">
+  <h1>Sinking Star Live</h1>
+  <p>Who is playing?</p>
+  <div class="cards">
+    <a class="card" href="/?mode=api"><b>API player</b><span>A model through OpenRouter or a local llama server. Start, pause and resume from here.</span></a>
+    <a class="card" href="/?mode=agent"><b>Coding agent</b><span>Claude Code (or similar) with the game tools. Pick a run and paste the prompt it gives you.</span></a>
+  </div>
+</div>
+<div id="picker" class="screen">
+  <a class="pill" href="/">◂ change player</a>
+  <h1 id="pickertitle"></h1>
+  <div id="pickerwarn" class="warn"></div>
+  <div id="runlist"></div>
+  <h2>New playthrough</h2>
+  <div class="newrun">
+    <input id="newname" placeholder="name (optional)" size="24">
+    <input id="newmodel" list="newmodels" placeholder="model id" size="32" style="display:none">
+    <datalist id="newmodels"></datalist>
+    <button id="newbtn">Start new run</button>
+  </div>
+  <p class="hint" id="newhint"></p>
+</div>
+<div id="promptmodal" class="screen modal">
+  <div class="box">
+    <h2>Prompt for your coding agent</h2>
+    <p class="hint" id="promptwhere"></p>
+    <textarea id="prompttext" readonly rows="7"></textarea>
+    <div><button id="promptcopy">Copy</button> <button id="promptclose">Close</button></div>
+  </div>
+</div>
+<div id="msgpanel" class="screen msgs">
+  <div class="msghead">
+    <h2>Messages</h2>
+    <button id="mt-transcript" class="active">Transcript</button>
+    <button id="mt-context" title="Exactly what the next model call will send">Next call</button>
+    <span class="pill" id="msgstats"></span>
+    <label class="hint"><input type="checkbox" id="msgwrap" checked> follow</label>
+    <span class="spacer"></span>
+    <button id="msgclose">Close</button>
+  </div>
+  <div id="msglist"></div>
+</div>
+<header>
+  <h1>Sinking Star · <span id="modename"></span></h1>
+  <a class="pill" href="/" title="Choose another player">◂ change</a>
+  <a class="pill" id="runpill" title="Back to the run list"><b id="runname"></b></a>
+  <span class="pill live"><span id="dot" class="dot"></span><span id="status">waiting</span></span>
+  <span class="pill">actions <b id="count">0</b></span>
+  <span class="pill">level <b id="level">–</b></span>
+  <span id="runctl" class="runctl"></span>
+  <span class="spacer"></span>
+  <button id="livebtn" class="active" title="Read the game every second (the player does not see this)">Game now: on</button>
+  <button id="msgbtn" style="display:none" title="Every message exchanged with the model">Messages</button>
+  <button id="follow" class="active" title="Always show the latest step">Follow live</button>
+</header>
+<main>
+  <div class="col left">
+    <div class="section">
+      <div class="maps">
+        <div class="mappanel">
+          <h2>Player saw <span id="viewstep" class="pill"></span></h2>
+          <div class="where" id="where-a"></div>
+          <div class="heroes" id="heroes-a"></div>
+          <div class="mapwrap"><div id="map-a" class="map"></div></div>
+          <div class="status" id="status-a"></div>
+        </div>
+        <div class="mappanel" id="panel-b">
+          <h2>Game now <span id="livetag" class="pill live2">live</span></h2>
+          <div class="where" id="where-b"></div>
+          <div class="heroes" id="heroes-b"></div>
+          <div class="mapwrap"><div id="map-b" class="map"></div></div>
+          <div class="status" id="status-b">Red outline = differs from what the player last saw.</div>
+        </div>
+      </div>
+      <div id="legend"></div>
+      <div id="dialogue"></div>
+    </div>
+    <div class="section">
+      <h2>Objects <span class="pill" id="statesrc">as the player saw them</span>
+        <button id="srcbtn" title="Switch between the player's view and the game right now">show game now</button></h2>
+      <div id="state" class="state"></div>
+      <div id="fences" class="fencetext"></div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="section" style="padding-bottom:6px"><h2>Commentary <span class="pill" id="talkcount">0</span></h2></div>
+    <div id="talk"><div class="empty" style="padding:16px">Nothing said yet.</div></div>
+  </div>
+  <div class="col">
+    <div class="section" style="padding-bottom:6px"><h2>Actions</h2></div>
+    <div id="timeline"><div class="empty" style="padding:16px">No actions yet. Start the player session.</div></div>
+    <div id="notes">
+      <div id="notetabs"></div>
+      <div id="notebody" class="empty">No notes yet.</div>
+    </div>
+  </div>
+</main>
+<script>
+// Which player and run this page shows (?mode=api|agent&run=<name>); every data request carries it.
+const _p = new URLSearchParams(location.search);
+const MODE = _p.get("mode") || "", RUN = _p.get("run") || "";
+const Q = `mode=${encodeURIComponent(MODE)}&run=${encodeURIComponent(RUN)}`;
+</script>
+<script>
+const events = [];
+let selected = null, follow = true, noteSel = "progress.md", liveOn = true, stateSrc = "a";
+let viewA = null, viewAprev = null, viewB = null, liveBusy = false;
+const $ = id => document.getElementById(id);
+
+const COLORS = { R:"#c8a27a", D:"#7fb3ff", f:"#9aa5b1", N:"#e6a3ff", "?":"#ffe08a", s:"#ff9f68",
+  G:"#ff6b9a", "*":"#5ff0e0", o:"#41c9b9", M:"#b9e3ff", m:"#ff5c5c", "/":"#cfcfcf", T:"#b18cff",
+  L:"#7fd36b", V:"#ffb347", t:"#4caf50", B:"#8ecae6", d:"#ff8fab", F:"#ff4d6d", e:"#fff1b8",
+  ">":"#ffd166", W:"#c77dff", Z:"#90e0ef", E:"#f5c542", A:"#06d6a0", "$":"#ffd700", S:"#d4d4d4",
+  u:"#adb5bd", H:"#e0aaff", "%":"#f4a261", "&":"#e76f51", c:"#2ec4b6", i:"#cdb4db", J:"#ffafcc",
+  "^":"#e9ecef", ",":"#8d99ae", "!":"#ffbe0b" };
+const TERRAIN = "#.+= ";
+
+// ---------- parsing the text the player gets ----------
+function parseView(text) {
+  const lines = (text || "").split("\n");
+  const v = { where: "", heroes: "", status: "", fences: "", dialogue: [], rows: [], xs: [],
+              objects: [], changes: [], edge: false, symbols: "" };
+  let i = 0, mode = "head";
+  for (; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.startsWith("Map (")) {
+      i++;
+      if ((lines[i] || "").startsWith("Coordinates:")) { mode = "map"; break; }
+      if ((lines[i] || "").startsWith("Fences are thin walls")) { v.edge = true; i++; }
+      const hdr = lines[i] || "";
+      const off = v.edge ? 6 : 5, stride = v.edge ? 2 : 1;
+      for (let c = off; c < hdr.length; c += stride) v.xs.push(hdr[c]);
+      i++; mode = "oldmap"; break;
+    }
+    if (l.startsWith("> ")) continue;
+    if (l.startsWith("== ")) { v.where = l.replace(/=/g, "").trim(); continue; }
+    if (l.startsWith("Dialogue")) { mode = "dlg"; continue; }
+    if (l.startsWith("Symbols: ")) { v.symbols = l.slice(9); continue; }
+    if (l.startsWith("Heroes: ")) { v.heroes = l.slice(8); continue; }
+    if (/^(Puzzle level|Open world|.*view around you)/.test(l)) { v.where = l; mode = "head"; continue; }
+    if (mode === "dlg" && l.startsWith("  ")) { v.dialogue.push(l.trim()); continue; }
+    if (l.startsWith("  ") && l.trim()) v.changes.push(l.trim());
+  }
+  if (mode === "map") parseGrid(v, lines, i);
+  else if (mode === "oldmap") parseOld(v, lines, i);
+  else return null;
+  for (const l of lines) {
+    if (l.startsWith("Outfit gates")) v.gates = true;
+    if (l.startsWith("Status: ")) v.status = l.slice(8);
+    if (l.startsWith("Fences: ")) v.fences = l.slice(8);
+  }
+  v.objs = v.objects.map(parseObj).filter(Boolean);
+  return v;
+}
+
+// Current format: 2-char cells (fence slot + tile), vertical x labels on "   x" lines,
+// y labels on both ends of each row, '-' fence rows between tile rows.
+function parseGrid(v, lines, i) {
+  v.edge = true;
+  const label = l => l.slice(0, 5).trim();
+  const hdr = [];
+  for (; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.startsWith("Fences are thin walls") || l.startsWith("Coordinates:")) continue;
+    if (label(l) === "x") { hdr.push(l); continue; }
+    if (hdr.length) break;
+  }
+  const n = Math.max(...hdr.map(h => Math.floor((h.length - 5) / 2)));
+  for (let c = 0; c < n; c++) v.xs.push(hdr.map(h => h[6 + 2 * c] || " ").join("").trim());
+  let pendingAbove = "";
+  for (; i < lines.length; i++) {
+    const l = lines[i];
+    const lab = label(l);
+    if (lab === "x") { i++; while (i < lines.length && label(lines[i]) === "x") i++; break; }
+    if (/^-?\d+$/.test(lab)) {
+      const body = l.slice(5), tiles = [], left = [], right = [], above = [];
+      for (let c = 0; c < n; c++) {
+        tiles.push(body[1 + 2 * c] || " ");
+        left.push(edgeOf(body[2 * c]));
+        right.push(edgeOf(body[2 + 2 * c]));
+        above.push(edgeOf(pendingAbove[6 + 2 * c], true));
+      }
+      v.rows.push({ y: lab, tiles, left, right, above, below: tiles.map(() => false) });
+      pendingAbove = "";
+    } else {
+      pendingAbove = l;
+      const prev = v.rows[v.rows.length - 1];
+      if (prev) prev.below = prev.tiles.map((_, c) => edgeOf(l[6 + 2 * c], true));
+    }
+  }
+  for (; i < lines.length; i++) if (lines[i].startsWith("  ")) v.objects.push(lines[i].slice(2));
+}
+
+// Tile-edge marker -> false (none), "fence", or an outfit-gate colour letter (R/G/B/~).
+function edgeOf(ch, horiz) {
+  if (ch === (horiz ? "-" : "|")) return "fence";
+  return /[RGB~]/.test(ch || "") ? ch : false;
+}
+
+// Older format (single-digit column header), kept so earlier steps still display.
+function parseOld(v, lines, i) {
+  let pendingAbove = "";
+  for (; i < lines.length; i++) {
+    const l = lines[i];
+    if (l === "") break;
+    const m = l.match(/^\s*(-?\d+) (.*)$/);
+    if (m) {
+      const raw = m[2], tiles = [], left = [], right = [];
+      if (v.edge) {
+        for (let c = 0; 1 + 2 * c < Math.max(raw.length, 1 + 2 * v.xs.length); c++) {
+          tiles.push(raw[1 + 2 * c] || " ");
+          left.push((raw[2 * c] || " ") === "|");
+          right.push((raw[2 + 2 * c] || " ") === "|");
+        }
+      } else {
+        for (const ch of raw) { tiles.push(ch); left.push(false); right.push(false); }
+      }
+      const above = tiles.map((_, c) => (pendingAbove[6 + 2 * c] || " ") === "-");
+      v.rows.push({ y: m[1], tiles, left, right, above, below: tiles.map(() => false) });
+      pendingAbove = "";
+    } else if (v.edge) {
+      pendingAbove = l;
+      const prev = v.rows[v.rows.length - 1];
+      if (prev) prev.below = prev.tiles.map((_, c) => (l[6 + 2 * c] || " ") === "-");
+    } else break;
+  }
+  for (; i < lines.length; i++) if (lines[i].startsWith("  ")) v.objects.push(lines[i].slice(2));
+}
+
+// "  R Rock 3 at (4,1,+0) facing east, open=False, under Hero 1"
+function parseObj(line) {
+  const m = line.match(/^(\S)\s+(.+?) at \((-?\d+),(-?\d+),([+-]?\d+)\)\s*(.*)$/);
+  if (!m) {
+    const o = line.match(/^(\S)\s+(.+?) at (.*)$/);
+    return o ? { g: o[1], label: o[2], kind: kindOf(o[2]), x: null, y: null, dz: null, parts: [o[3]] } : null;
+  }
+  const parts = m[6].split(/,\s+(?![^(]*\))/).map(s => s.trim()).filter(Boolean);
+  return { g: m[1], label: m[2], kind: kindOf(m[2]), x: +m[3], y: +m[4], dz: +m[5], parts };
+}
+function kindOf(label) { return label.replace(/\s+\d+$/, "").replace(/\s*\(.*\)$/, ""); }
+
+function badgeClass(p) {
+  if (/^\(you/.test(p)) return "you";
+  if (/(=True|^thawed|state=solved|status=(read|played|activated)|discovered=True)/.test(p)) return "good";
+  if (/(=False|^frozen|state=locked|not read|not played|not activated|^dead|falling)/.test(p)) return "bad";
+  if (/^(holding|inside|under|standing on|switch to it)/.test(p)) return "info";
+  return "";
+}
+
+// ---------- drawing ----------
+function tileClass(ch) {
+  return ch === "#" ? "c-wall" : ch === "=" ? "c-wall2" : ch === "+" ? "c-wall1" : ch === "." ? "c-floor"
+    : ch === " " ? "c-void" : ch === "@" ? "c-hero" : (/[1-9h]/.test(ch) ? "c-hero2" : "c-obj");
+}
+
+// Colours that show an object's state at a glance (entrances by progress, outfits by owner).
+const STATE_COLORS = { solved: "#5fd38d", unsolved: "#f5c542", locked: "#6b7480",
+  red: "#e5484d", green: "#46a758", blue: "#3e63dd" };
+const GATE_COLORS = { R: "#ff4d52", G: "#3ddc6f", B: "#4f8bff", "~": "#c084fc" };
+function stateColor(o) {
+  if (!o) return null;
+  const all = o.parts.join(", ");
+  let m = all.match(/state=(solved|unsolved|locked)/);
+  if (m) return STATE_COLORS[m[1]];
+  m = all.match(/outfit \((red|green|blue)\)/);
+  if (m) return STATE_COLORS[m[1]];
+  return null;
+}
+
+function tileIndex(v) {   // "x,y" -> glyph
+  const m = new Map();
+  if (!v) return m;
+  for (const r of v.rows) r.tiles.forEach((ch, c) => m.set(`${v.xs[c]},${r.y}`, ch));
+  return m;
+}
+
+function renderMap(el, v, other) {
+  el.innerHTML = "";
+  if (!v || !v.rows.length) { el.innerHTML = '<div class="empty">No map.</div>'; return; }
+  const w = Math.max(v.xs.length, ...v.rows.map(r => r.tiles.length));
+  el.style.gridTemplateColumns = `28px repeat(${w}, 20px)`;
+  // Objects per tile (at your height) for tooltips and "something underneath" markers.
+  const here = new Map();
+  for (const o of v.objs || []) {
+    if (o.x === null || o.dz !== 0) continue;
+    const k = `${o.x},${o.y}`;
+    if (!here.has(k)) here.set(k, []);
+    here.get(k).push(o);
+  }
+  const otherIdx = other ? tileIndex(other) : null;
+  const frag = document.createDocumentFragment();
+  const F = "var(--fence)";
+  for (const r of v.rows) {
+    const lab = document.createElement("div"); lab.className = "cell lbl"; lab.textContent = r.y;
+    frag.appendChild(lab);
+    for (let x = 0; x < w; x++) {
+      const ch = r.tiles[x] || " ";
+      const key = `${v.xs[x]},${r.y}`;
+      const c = document.createElement("div");
+      c.className = "cell " + tileClass(ch);
+      const objs = here.get(key) || [];
+      if (!TERRAIN.includes(ch)) {
+        c.textContent = ch;
+        const top = objs.find(o => o.g === ch);
+        const col = stateColor(top) || COLORS[ch];
+        if (col) c.style.background = col;
+      }
+      if (objs.length > 1 || objs.some(o => o.parts.some(p => /^(under|inside|standing on|holding)/.test(p))))
+        c.classList.add("stack");
+      c.title = `(${key})` + (objs.length ? "\n" + objs.map(o => o.label + (o.parts.length ? ": " + o.parts.join(", ") : "")).join("\n") : "");
+      if (otherIdx && otherIdx.size && otherIdx.has(key) && otherIdx.get(key) !== ch) c.classList.add("diff");
+      const sh = [];
+      const ec = e => e === "fence" ? [F, 3] : [GATE_COLORS[e] || GATE_COLORS["~"], 5];
+      for (const [e, dx, dy] of [[r.above[x], 0, 1], [r.below[x], 0, -1], [r.left[x], 1, 0], [r.right[x], -1, 0]])
+        if (e) { const [col, n] = ec(e); sh.push(`inset ${dx * n}px ${dy * n}px 0 ${col}`); }
+      if (sh.length) c.style.boxShadow = sh.join(", ");
+      frag.appendChild(c);
+    }
+  }
+  const corner = document.createElement("div"); corner.className = "cell lbl"; frag.appendChild(corner);
+  for (let x = 0; x < w; x++) {
+    const c = document.createElement("div"); c.className = "cell lbl xl"; c.textContent = v.xs[x] || "";
+    frag.appendChild(c);
+  }
+  el.appendChild(frag);
+}
+
+function renderLegend(v) {
+  const lg = $("legend");
+  lg.innerHTML = "";
+  if (!v) return;
+  const items = [];
+  for (const part of (v.symbols || "").split(/\s{2,}/)) {
+    const k = part.indexOf("=");
+    if (k > 0) items.push([part.slice(0, k), part.slice(k + 1)]);
+  }
+  if ((v.objs || []).some(o => o.g === "E"))
+    items.push(["E:solved", "entrance solved"], ["E:unsolved", "entrance unsolved"], ["E:locked", "entrance locked"]);
+  items.push([".", "floor"], ["#", "wall"]);
+  if (v.edge) items.push(["|", "fence (tile edge)"]);
+  if (v.gates) items.push(["R|G|B", "outfit gate (walkable edge, colour = outfit)"]);
+  items.push(["•", "something else on this tile"]);
+  for (const [g, name] of items) {
+    const it = document.createElement("span"); it.className = "item";
+    const c = document.createElement("span");
+    c.className = "cell " + tileClass(g);
+    if (g === "R|G|B") { c.className = "cell c-floor"; c.style.boxShadow = `inset 5px 0 0 ${GATE_COLORS.R}, inset -5px 0 0 ${GATE_COLORS.B}, inset 0 5px 0 ${GATE_COLORS.G}`; }
+    else if (g === "|") { c.className = "cell c-floor"; c.style.boxShadow = "inset -3px 0 0 var(--fence)"; }
+    else if (g === "•") { c.className = "cell c-floor stack"; }
+    else if (g.startsWith("E:")) { c.className = "cell c-obj"; c.textContent = "E"; c.style.background = STATE_COLORS[g.slice(2)]; }
+    else if (!TERRAIN.includes(g)) { c.textContent = g; if (COLORS[g]) c.style.background = COLORS[g]; }
+    const t = document.createElement("span"); t.textContent = name;
+    it.append(c, t); lg.appendChild(it);
+  }
+}
+
+function renderPanel(side, v, other) {
+  $("where-" + side).textContent = v ? v.where : "";
+  $("heroes-" + side).textContent = v && v.heroes ? "Heroes: " + v.heroes : "";
+  renderMap($("map-" + side), v, other);
+  if (side === "a") {
+    const st = $("status-a");
+    st.textContent = v && v.status ? v.status : "";
+    st.className = "status" + (v && v.status && !/ready/.test(v.status) ? " busy" : "");
+  }
+}
+
+function renderState() {
+  const v = stateSrc === "a" ? viewA : viewB;
+  const prev = stateSrc === "a" ? viewAprev : viewA;
+  $("statesrc").textContent = stateSrc === "a" ? "as the player saw them" : "game right now";
+  $("srcbtn").textContent = stateSrc === "a" ? "show game now" : "show what the player saw";
+  const box = $("state");
+  box.innerHTML = "";
+  $("fences").textContent = v && v.fences ? "Fences: " + v.fences : "";
+  if (!v || !v.objs.length) { box.innerHTML = '<div class="empty">No objects.</div>'; return; }
+  const before = new Map((prev && prev.objs || []).map(o => [o.label, JSON.stringify([o.x, o.y, o.dz, o.parts])]));
+  const groups = new Map();
+  for (const o of v.objs) {
+    const g = o.kind;
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(o);
+  }
+  for (const [g, list] of groups) {
+    const sec = document.createElement("div"); sec.className = "group";
+    const h = document.createElement("h3"); h.textContent = `${g} (${list.length})`; sec.appendChild(h);
+    for (const o of list) {
+      const row = document.createElement("div"); row.className = "obj";
+      const now = JSON.stringify([o.x, o.y, o.dz, o.parts]);
+      if (prev && before.has(o.label) && before.get(o.label) !== now) row.classList.add("changed");
+      if (prev && !before.has(o.label)) row.classList.add("changed");
+      const chip = document.createElement("span");
+      chip.className = "cell chip " + tileClass(o.g);
+      chip.textContent = o.g;
+      if (COLORS[o.g]) chip.style.background = COLORS[o.g];
+      const nm = document.createElement("span"); nm.className = "name"; nm.textContent = o.label;
+      const at = document.createElement("span"); at.className = "at";
+      at.textContent = o.x === null ? "off-grid" : `(${o.x},${o.y})` + (o.dz ? ` h${o.dz > 0 ? "+" : ""}${o.dz}` : "");
+      row.append(chip, nm, at);
+      for (const p of o.parts) {
+        const b = document.createElement("span");
+        b.className = "badge " + badgeClass(p);
+        b.textContent = p.replace(/^\(|\)$/g, "");
+        row.appendChild(b);
+      }
+      sec.appendChild(row);
+    }
+    box.appendChild(sec);
+  }
+}
+
+function sameLevel(a, b) {
+  const lv = v => (v && v.where || "").replace(/^Puzzle level /, "").split(",")[0].replace(/'/g, "");
+  return a && b && lv(a) === lv(b);
+}
+
+function redraw() {
+  renderPanel("a", viewA, null);
+  renderPanel("b", viewB, sameLevel(viewA, viewB) ? viewA : null);
+  renderLegend(viewA || viewB);
+  const d = $("dialogue");
+  d.style.display = viewA && viewA.dialogue.length ? "block" : "none";
+  d.textContent = viewA ? viewA.dialogue.join("\n") : "";
+  renderState();
+}
+
+// ---------- timeline ----------
+function viewFor(idx) {
+  for (let k = idx; k >= 0; k--) {
+    const v = parseView(events[k].result);
+    if (v) return { v, k };
+  }
+  return null;
+}
+
+function showStep(idx) {
+  if (idx == null || !events.length) return;
+  selected = idx;
+  document.querySelectorAll(".ev.sel").forEach(e => e.classList.remove("sel"));
+  const el = document.querySelector(`.ev[data-i="${idx}"]`);
+  if (el) el.classList.add("sel");
+  const found = viewFor(idx);
+  $("viewstep").textContent = `step ${idx + 1}` + (found && found.k !== idx ? ` (map from step ${found.k + 1})` : "");
+  viewA = found ? found.v : null;
+  const prevFound = found ? viewFor(found.k - 1) : null;
+  viewAprev = prevFound ? prevFound.v : null;
+  redraw();
+}
+
+function summary(e) {
+  const a = e.args || {};
+  switch (e.tool) {
+    case "move": return `move ${a.direction}` + (a.steps > 1 ? ` ×${a.steps}` : "");
+    case "act": return `act: ${a.commands}`;
+    case "undo": return "undo" + (a.steps > 1 ? ` ×${a.steps}` : "");
+    case "action": return a.name.replace(/_/g, " ");
+    case "select_character": return `select hero ${a.number}`;
+    case "write_note": return `wrote note “${a.name}”`;
+    case "append_note": return `added to note “${a.name}”`;
+    case "read_note": return `read note “${a.name}”`;
+    case "list_notes": return "listed notes";
+    case "world_map": return "checked world map";
+    case "say": return "\u{1F4AC} " + (a.text || "");
+    default: return e.tool.replace(/_/g, " ");
+  }
+}
+
+function changeLines(e) {
+  if (e.tool.endsWith("_note")) {
+    const a = e.args || {};
+    const body = a.content || a.text || "";
+    return body ? body.split("\n").slice(0, 4).join("\n") + (body.split("\n").length > 4 ? "\n…" : "") : "";
+  }
+  if (e.tool === "say") return "";
+  if (e.tool === "world_map") return (e.result || "").split("\n").filter(l => l.startsWith("  - ")).slice(0, 6).join("\n");
+  const res = e.result || "";
+  const v = parseView(res);
+  if (!v) return res.split("\n").slice(0, 3).join("\n");
+  const out = res.split("\n").filter(l => l.startsWith("> ") || l.startsWith("(stopped") ||
+    (l.startsWith("  ") && !l.startsWith("   ") && !/^\s+\S .+ at \(/.test(l) && !l.startsWith("  Dialogue")));
+  if (res.includes("== You entered")) out.unshift("→ " + v.where);
+  return out.slice(0, 14).join("\n");
+}
+
+function addEvent(e) {
+  events.push(e);
+  const tl = $("timeline");
+  if (events.length === 1 || (tl.firstElementChild && tl.firstElementChild.classList.contains("empty") && e.tool !== "say")) tl.innerHTML = "";
+  const el = document.createElement("div");
+  const res = e.result || "";
+  const isErr = res.startsWith("error");
+  const isWarn = /\(stopped: that step|unexpected:|did not respond/.test(res);
+  const isNote = e.tool.includes("note");
+  const isLevel = res.includes("== You entered");
+  el.className = "ev" + (e.tool === "say" ? " say" : "") + (isErr ? " err" : "") + (isWarn ? " warn" : "") + (isNote ? " note" : "") + (isLevel ? " level" : "");
+  el.dataset.i = events.length - 1;
+  const t = new Date(e.t * 1000).toLocaleTimeString();
+  el.innerHTML = `<div class="top"><span class="n">${events.length}</span><span class="what"></span><span class="time">${t}</span></div><div class="chg"></div>`;
+  el.querySelector(".what").textContent = summary(e) + (e.ms ? `  (${(e.ms / 1000).toFixed(1)}s)` : "");
+  const chg = changeLines(e);
+  const c = el.querySelector(".chg");
+  if (chg) c.textContent = chg; else c.remove();
+  if (e.tool === "say") { renderTalk(); return; }
+  el.onclick = () => { follow = false; $("follow").classList.remove("active"); showStep(+el.dataset.i); };
+  tl.prepend(el);
+  const v = parseView(res);
+  if (v && v.where) $("level").textContent = v.where.replace(/^Puzzle level /, "").split(",")[0].replace(/'/g, "");
+}
+
+let voiceLines = null;   // from /voice: every line said, with its voice state
+let talkKey = "";
+async function pollVoice() {
+  try {
+    const rows = await (await fetch(`/voice?${Q}`)).json();
+    if (rows.length) { voiceLines = rows; renderTalk(); }
+  } catch (err) {}
+}
+
+function renderTalk() {
+  // Prefer the speech log (has voice state); fall back to `say` calls in the action log.
+  const rows = voiceLines || events.filter(e => e.tool === "say")
+    .map(e => ({ t: e.t, text: (e.args || {}).text || "", state: "" }));
+  const now = Date.now() / 1000;
+  const view = rows.map(l => ({ ...l, speaking: l.state === "speaking" && (!l.ends || now < l.ends + 0.5) }));
+  const key = JSON.stringify(view.map(l => [l.text, l.state, l.speaking]));
+  if (key === talkKey) return;
+  talkKey = key;
+  const box = $("talk");
+  $("talkcount").textContent = rows.length;
+  if (!rows.length) return;
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.innerHTML = "";
+  for (const l of view) {
+    const d = document.createElement("div");
+    d.className = "say" + (l.speaking ? " speaking" : "") + (l.state === "skipped" ? " skipped" : "")
+      + (l.state === "failed" ? " failed" : "");
+    const t = document.createElement("div"); t.className = "t";
+    const time = document.createElement("span"); time.textContent = new Date(l.t * 1000).toLocaleTimeString();
+    const st = document.createElement("span"); st.className = "st";
+    t.append(time, st);
+    const txt = document.createElement("div"); txt.className = "txt"; txt.textContent = l.text;
+    d.append(t, txt);
+    box.appendChild(d);
+  }
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+async function poll() {
+  try {
+    const fresh = await (await fetch(`/log?${Q}&from=${events.length}`)).json();
+    fresh.forEach(addEvent);
+    $("count").textContent = events.filter(e => !e.tool.includes("note") && !["look", "world_map", "say"].includes(e.tool)).length;
+    if (fresh.length && follow) showStep(events.length - 1);
+    const last = events[events.length - 1];
+    const age = last ? (Date.now() / 1000 - last.t) : Infinity;
+    $("dot").classList.toggle("on", age < 30);
+    $("status").textContent = !last ? "waiting" : age < 30 ? "playing" : `idle ${Math.round(age / 60)} min`;
+  } catch (err) {
+    $("status").textContent = "viewer offline";
+    $("dot").classList.remove("on");
+  }
+}
+
+async function pollLive() {
+  if (!liveOn || liveBusy || document.hidden) return;
+  liveBusy = true;
+  try {
+    const text = await (await fetch(`/snapshot?${Q}`)).text();
+    const v = parseView(text);
+    if (v) {
+      viewB = v;
+      $("livetag").textContent = "live · " + new Date().toLocaleTimeString();
+      renderPanel("b", viewB, sameLevel(viewA, viewB) ? viewA : null);
+      if (!viewA) renderLegend(viewB);
+      if (stateSrc === "b") renderState();
+    } else {
+      $("livetag").textContent = text.startsWith("error") ? "game not readable" : "no map (menu or loading?)";
+    }
+  } catch (err) {
+    $("livetag").textContent = "viewer offline";
+  }
+  liveBusy = false;
+}
+
+async function pollNotes() {
+  try {
+    const files = await (await fetch(`/notes?${Q}`)).json();
+    const tabs = $("notetabs");
+    tabs.innerHTML = "";
+    if (!files.length) { $("notebody").textContent = "No notes yet."; return; }
+    if (!files.find(f => f.name === noteSel)) noteSel = files[0].name;
+    for (const f of files) {
+      const b = document.createElement("button");
+      b.textContent = f.name.replace(/\.md$/, "");
+      if (f.name === noteSel) b.classList.add("active");
+      b.onclick = () => { noteSel = f.name; pollNotes(); };
+      tabs.appendChild(b);
+    }
+    const body = $("notebody");
+    body.classList.remove("empty");
+    const cur = files.find(f => f.name === noteSel);
+    if (body.textContent !== cur.content) body.textContent = cur.content;
+  } catch (err) {}
+}
+
+$("livebtn").onclick = () => {
+  liveOn = !liveOn;
+  $("livebtn").classList.toggle("active", liveOn);
+  $("livebtn").textContent = "Game now: " + (liveOn ? "on" : "off");
+  $("panel-b").style.display = liveOn ? "" : "none";
+  if (liveOn) pollLive();
+};
+$("srcbtn").onclick = () => { stateSrc = stateSrc === "a" ? "b" : "a"; renderState(); };
+$("follow").onclick = () => {
+  follow = !follow;
+  $("follow").classList.toggle("active", follow);
+  if (follow) showStep(events.length - 1);
+};
+poll(); pollNotes(); pollLive();
+setInterval(poll, 700);
+pollVoice(); setInterval(pollVoice, 500);
+setInterval(pollNotes, 3000);
+setInterval(pollLive, 1000);
+</script>
+<script>
+// Player / run selection and per-player controls.
+(() => {
+  const $ = id => document.getElementById(id);
+  const CONTROL = "http://127.0.0.1:8766";           // api_player/control.py
+  const NAMES = { api: "API player", agent: "Coding agent" };
+  const stage = !MODE ? "landing" : !RUN ? "picker" : "viewer";
+  document.body.className = "stage-" + stage;
+  if (stage === "landing") return;
+
+  const j = (url, opt) => fetch(url, opt).then(r => r.json());
+  const post = (url, body) => j(url, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}) });
+  const go = (run, extra = "") => { location.href = `/?mode=${MODE}` + (run ? `&run=${encodeURIComponent(run)}` : "") + extra; };
+  const ago = t => { const m = Math.round((Date.now() / 1000 - t) / 60);
+    return m < 2 ? "just now" : m < 120 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+  const runMeta = r => MODE === "api"
+    ? `${r.model || ""} · ${r.turns || 0} turns · $${((r.usage || {}).cost || 0).toFixed(2)} · ${ago(r.updated)}`
+    : `${r.actions || 0} actions · ${ago(r.updated)}`;
+
+  // ----- run picker -----
+  async function picker() {
+    $("pickertitle").textContent = NAMES[MODE] + " · playthroughs";
+    $("newhint").textContent = MODE === "api"
+      ? "Tip: start a fresh game save in-game first if you want a clean run. Needs the control server: uv run python -m api_player.control"
+      : "Tip: start a fresh game save in-game first if you want a clean run. You get a prompt to paste into your coding agent.";
+    const runs = await j(`/runs?mode=${MODE}`);
+    $("runlist").innerHTML = runs.length ? "" : '<div class="hint">No runs yet.</div>';
+    for (const r of runs) {
+      const row = document.createElement("div");
+      row.className = "runrow";
+      row.innerHTML = `<b></b><span class="meta"></span><button>Open</button>`;
+      row.querySelector("b").textContent = r.name;
+      row.querySelector(".meta").textContent = runMeta(r);
+      row.onclick = () => go(r.name);
+      $("runlist").appendChild(row);
+    }
+    if (MODE === "api") {
+      $("newmodel").style.display = "";
+      try {
+        const d = await j(CONTROL + "/defaults");
+        $("newmodels").innerHTML = d.suggested.map(m => `<option value="${m}">`).join("");
+        $("newmodel").value = d.model;
+      } catch (e) { $("pickerwarn").textContent = "API player control server is not running (uv run python -m api_player.control)."; }
+    }
+    $("newbtn").onclick = async () => {
+      const name = $("newname").value.trim();
+      if (MODE === "agent") {
+        const r = await post("/new?mode=agent", { name });
+        return r.error ? alert(r.error) : go(r.name, "&prompt=1");
+      }
+      try {
+        const r = await post(CONTROL + "/new", { name, model: $("newmodel").value.trim() || undefined });
+        r.error ? alert(r.error) : go(r.active);
+      } catch (e) { alert("API player control server is not running."); }
+    };
+  }
+
+  // ----- coding agent: prompt for the run -----
+  async function agentControls(meta) {
+    const info = await j("/info");
+    $("runctl").innerHTML = '<button id="getprompt">Prompt for coding agent</button>';
+    const show = async () => {
+      const m = (await j(`/runs?mode=agent`)).find(r => r.name === RUN) || meta;
+      const resume = (m.actions || 0) > 0;
+      $("promptwhere").textContent = "Start your coding agent in " + info.workspace + " and paste:";
+      $("prompttext").value =
+        `Play Order of the Sinking Star with the sinking-star tools. Your run is "${RUN}" (${resume ? "resuming an existing run: its notes hold your progress" : "a new run"}).\n` +
+        `Your first action is join_run("${RUN}"), then follow CLAUDE.md.`;
+      $("promptmodal").classList.add("open");
+    };
+    $("getprompt").onclick = show;
+    $("promptclose").onclick = () => $("promptmodal").classList.remove("open");
+    $("promptcopy").onclick = () => { $("prompttext").select(); navigator.clipboard.writeText($("prompttext").value);
+      $("promptcopy").textContent = "Copied"; setTimeout(() => $("promptcopy").textContent = "Copy", 1200); };
+    if (_p.get("prompt")) show();
+  }
+
+  // ----- api player: start / pause / stop -----
+  function apiControls(meta) {
+    $("runctl").innerHTML = `<span class="pill live" id="apiphase" style="display:none"><span class="dot" id="phasedot"></span><span id="phasetext"></span></span>
+      <span class="pill" id="apiinfo"></span>
+      <input id="apimodel" list="apimodels" placeholder="model id" size="30" title="OpenRouter model id; changing it while running applies on the next turn">
+      <datalist id="apimodels"></datalist>
+      <button id="apistart">Start</button><button id="apipause">Pause</button><button id="apistop">Stop</button>`;
+    $("apimodel").value = meta.model || "";
+    let st = {};
+    const mine = () => st.active === RUN;
+    const live = () => mine() && (st.status === "running" || st.status === "paused");
+    const draw = () => {
+      const u = mine() ? st : null;
+      $("apiinfo").textContent = !("active" in st) ? "control server offline"
+        : u ? `${u.status} · turn ${u.turns} · $${u.cost} · ${u.prompt} in (${u.cached} cached) / ${u.completion} out`
+        : st.active ? `run "${st.active}" is active` : "not running";
+      $("apistart").disabled = live() || !("active" in st) || (st.active && st.status === "running" && !mine());
+      $("apipause").textContent = st.status === "paused" && mine() ? "Unpause" : "Pause";
+      $("apipause").disabled = $("apistop").disabled = !live();
+    };
+    let polledAt = 0;
+    // Live "waiting for the model 42s" indicator: yellow after 60s, red after 180s (likely stuck).
+    const tick = () => {
+      const on = live() && st.status === "running" && st.phase && st.phase !== "idle";
+      $("apiphase").style.display = on ? "" : "none";
+      if (!on) return;
+      const s = Math.round((st.phase_for || 0) + (Date.now() - polledAt) / 1000);
+      const slow = st.phase.startsWith("waiting") && s > 60, stuck = st.phase.startsWith("waiting") && s > 180;
+      $("phasetext").textContent = `${st.phase} · ${s}s` + (stuck ? " · no reply, may be stuck: Stop and resume" : slow ? " · slow" : "");
+      const d = $("phasedot");
+      d.className = "dot on"; d.style.background = stuck ? "var(--bad)" : slow ? "var(--accent)" : "var(--good)";
+      d.style.boxShadow = "0 0 8px " + d.style.background;
+    };
+    setInterval(tick, 500);
+    const poll = async () => { try { st = await j(CONTROL + "/status"); polledAt = Date.now(); } catch (e) { st = {}; } draw(); tick(); };
+    j(CONTROL + "/defaults").then(d => { $("apimodels").innerHTML = d.suggested.map(m => `<option value="${m}">`).join("");
+      if (!$("apimodel").value) $("apimodel").value = d.model; }).catch(() => {});
+    $("apistart").onclick = async () => { const r = await post(CONTROL + "/resume", { name: RUN, model: $("apimodel").value.trim() || undefined });
+      if (r.error) alert(r.error); poll(); };
+    $("apipause").onclick = () => post(CONTROL + (st.status === "paused" ? "/unpause" : "/pause")).then(poll);
+    $("apistop").onclick = () => post(CONTROL + "/stop").then(poll);
+    $("apimodel").onchange = () => { if (live()) post(CONTROL + "/config", { model: $("apimodel").value.trim() }); };
+    poll(); setInterval(poll, 1500);
+  }
+
+  if (stage === "picker") return picker();
+  $("modename").textContent = NAMES[MODE];
+  $("runname").textContent = RUN;
+  $("runpill").href = `/?mode=${MODE}`;
+  j(`/runs?mode=${MODE}`).then(runs => {
+    const meta = runs.find(r => r.name === RUN) || {};
+    if (MODE === "agent") agentControls(meta); else apiControls(meta);
+  });
+})();
+</script>
+
+<script>
+// Messages panel (API player): the full transcript, and what the next model call will send.
+(() => {
+  if (MODE !== "api" || !RUN) return;
+  const $ = id => document.getElementById(id);
+  $("msgbtn").style.display = "";
+  let tab = "transcript", transcript = [], ctxKey = "", timer = null;
+  const openKeys = new Set();
+
+  const toolCalls = m => (m.tool_calls || []).map(c => {
+    let a = c.function.arguments;
+    try { const o = JSON.parse(a || "{}"); a = Object.values(o).join(", "); } catch (e) {}
+    return `${c.function.name}(${a})`;
+  });
+  function summary(m) {
+    if (m.role === "assistant") {
+      const said = m.content || (m.reasoning ? "(thinking) " + m.reasoning.replace(/\s+/g, " ") : "(no text)");
+      return [said, ...toolCalls(m)].join("  ·  ") + (m.finish === "length" ? "  ⚠ cut off" : "");
+    }
+    if (m.role === "tool") return `${m.name || "result"}: ${(m.content || "").split("\n")[0]}`;
+    return (m.content || "").split("\n")[0];
+  }
+  function body(m) {
+    if (m.role !== "assistant") return m.content || "";
+    const tc = (m.tool_calls || []).map(c => `→ ${c.function.name} ${c.function.arguments}`);
+    return [m.reasoning ? "💭 THINKING\n" + m.reasoning : "", m.content ? "SAID\n" + m.content : "", ...tc]
+      .filter(Boolean).join("\n\n");
+  }
+  function usageText(m) {
+    const u = m.usage; if (!u) return "";
+    return `in ${u.prompt} (${u.cached} cached) · out ${u.completion} · $${(+u.cost || 0).toFixed(4)}`;
+  }
+  function card(m, key) {
+    const el = document.createElement("div");
+    const text = body(m);
+    const stub = m.role === "tool" && /\[.*map dropped\]/.test(text);
+    el.className = `m ${m.role}${stub ? " stub" : ""}${/^error/.test(text) ? " err" : ""}`
+      + (openKeys.has(key) ? " open" : "");
+    const h = document.createElement("div"); h.className = "mh";
+    const role = document.createElement("b"); role.textContent = m.role === "tool" ? "tool result" : m.role;
+    const sum = document.createElement("span"); sum.className = "sum"; sum.textContent = summary(m);
+    h.append(role, sum);
+    const meta = [m.turn != null && m.role !== "system" ? `turn ${m.turn}` : "", usageText(m),
+      text ? `${text.length} chars` : ""].filter(Boolean).join(" · ");
+    const mt = document.createElement("span"); mt.textContent = meta; h.append(mt);
+    const pre = document.createElement("pre"); pre.textContent = text;
+    h.onclick = () => { el.classList.toggle("open"); el.classList.contains("open") ? openKeys.add(key) : openKeys.delete(key); };
+    el.append(h, pre);
+    return el;
+  }
+  const list = () => $("msglist");
+  const stick = () => $("msgwrap").checked && (list().scrollTop = list().scrollHeight);
+  const atBottom = () => list().scrollHeight - list().scrollTop - list().clientHeight < 60;
+
+  async function pollTranscript() {
+    const fresh = await (await fetch(`/messages?${Q}&from=${transcript.length}`)).json();
+    if (tab !== "transcript") return;
+    const follow = atBottom();
+    for (const m of fresh) {
+      transcript.push(m);
+      list().appendChild(card(m, "t" + m.i));
+    }
+    const u = transcript.filter(m => m.usage).reduce((a, m) => ({ i: a.i + m.usage.prompt, o: a.o + m.usage.completion,
+      c: a.c + m.usage.cached, $: a.$ + (+m.usage.cost || 0) }), { i: 0, o: 0, c: 0, $: 0 });
+    $("msgstats").textContent = `${transcript.length} messages · ${u.i} in (${u.c} cached) · ${u.o} out · $${u.$.toFixed(4)}`;
+    if (fresh.length && follow) stick();
+  }
+  async function pollContext() {
+    const msgs = await (await fetch(`/context?${Q}`)).json();
+    if (tab !== "context") return;
+    const key = JSON.stringify(msgs);
+    if (key === ctxKey) return;
+    ctxKey = key;
+    const follow = atBottom();
+    list().innerHTML = "";
+    msgs.forEach((m, i) => list().appendChild(card(m, "c" + i)));
+    const chars = msgs.reduce((a, m) => a + body(m).length, 0);
+    $("msgstats").textContent = `${msgs.length} messages · ~${Math.round(chars / 4)} tokens (estimate)`;
+    if (follow) stick();
+  }
+  const poll = () => (tab === "transcript" ? pollTranscript() : pollContext()).catch(() => {});
+  function setTab(t) {
+    tab = t; transcript = []; ctxKey = ""; list().innerHTML = "";
+    $("mt-transcript").classList.toggle("active", t === "transcript");
+    $("mt-context").classList.toggle("active", t === "context");
+    poll().then(stick);
+  }
+  $("msgbtn").onclick = () => { $("msgpanel").classList.add("open"); setTab(tab); timer = setInterval(poll, 1500); };
+  $("msgclose").onclick = () => { $("msgpanel").classList.remove("open"); clearInterval(timer); };
+  $("mt-transcript").onclick = () => setTab("transcript");
+  $("mt-context").onclick = () => setTab("context");
+})();
+</script>
+</body>
+</html>

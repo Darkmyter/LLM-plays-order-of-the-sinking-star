@@ -1,0 +1,36 @@
+# OpenRouter by default. For a local model, point base_url at llama-server / Ollama:
+#   base_url = "http://localhost:8080/v1"   (llama.cpp)   or   "http://localhost:11434/v1" (Ollama)
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+model = "deepseek/deepseek-v4.1-flash"
+# Shown as suggestions in the viewer; any OpenRouter model id (or a local model name) works.
+suggested_models = [
+  "deepseek/deepseek-chat-v3.1",
+  "deepseek/deepseek-v4.1-flash",
+  "google/gemini-2.5-flash",
+  "openai/gpt-4o-mini",
+  "qwen/qwen3-235b-a22b",
+  "xiaomi/mimo-v2.6-flash",
+  "openai/gpt-6-luna",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "qwen/qwen3.8-27b",
+  "z-ai/glm-5.3-flash",
+  "google/gemini-3.7-flash",
+  "anthropic/claude-sonnet-5.5",
+  "anthropic/claude-opus-5.5",
+  "xiaomi/mimo-v2.6-pro",
+  "qwen/qwen3.8-max-0902",
+  "z-ai/glm-5.3-prime",
+  "openai/gpt-6.1-sol"
+]
+temperature = 0.3
+max_output_tokens = 20000   # reasoning models spend part of this thinking; too low = cut off before acting
+# OpenRouter reasoning control (optional). Lower effort = cheaper and faster; remove for model default.
+reasoning = { effort = "low" }
+
+[limits]
+max_turns = 300          # model calls per run
+max_cost_usd = 2.0       # stop when the run costs more than this
+history_high = 40        # when history exceeds this many messages...
+history_low = 16         # ...cut it back to about this many (batch pruning keeps the prefix cached)
+full_views_kept = 1      # how many recent observations keep their full map

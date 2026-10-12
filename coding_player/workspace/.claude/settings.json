@@ -1,0 +1,19 @@
+{
+  "enabledMcpjsonServers": ["sinking-star"],
+  "permissions": {
+    "allow": ["mcp__sinking-star"],
+    "deny": [
+      "Read",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Bash",
+      "PowerShell",
+      "Grep",
+      "Glob",
+      "WebFetch",
+      "WebSearch",
+      "Agent"
+    ]
+  }
+}

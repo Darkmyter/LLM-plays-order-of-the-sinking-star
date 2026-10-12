@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sinking-star": {
+      "command": "uv",
+      "args": ["run", "--directory", "D:/Games/sinking-star-llm", "python", "-m", "coding_player.mcp_server"]
+    }
+  }
+}
