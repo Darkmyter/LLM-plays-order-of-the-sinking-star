@@ -18,6 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
+from api_player.notes import Notes  # noqa: E402
 from game import runs, stats  # noqa: E402
 
 PORT = 8765
@@ -85,16 +86,9 @@ def read_speech(rdir, limit=300):
 
 
 def read_notes(mode, rdir):
-    """Coding-agent runs keep a notes/ folder; API runs keep notes.md (the player's own) and
-    journal.md (read-only: signs and recordings the harness kept)."""
+    """Both players keep their notes as pages in a notes/ folder. API runs also have journal.md
+    (read-only: the signs and recordings the harness kept), and older API runs a single notes.md."""
     files = []
-    if mode == "api":
-        for name in ("notes.md", "journal.md"):
-            p = os.path.join(rdir, name)
-            if os.path.isfile(p):
-                with open(p, encoding="utf-8", errors="replace") as f:
-                    files.append({"name": name, "mtime": os.path.getmtime(p), "content": f.read()})
-        return files
     base = os.path.join(rdir, "notes")
     for root, _, names in os.walk(base):
         for n in names:
@@ -102,6 +96,15 @@ def read_notes(mode, rdir):
             rel = os.path.relpath(p, base).replace(os.sep, "/")
             with open(p, encoding="utf-8", errors="replace") as f:
                 files.append({"name": rel, "mtime": os.path.getmtime(p), "content": f.read()})
+    if mode == "api":
+        order = {n + ".md": i for i, n in enumerate(("progress", "mechanics", "characters", "world"))}
+        files.sort(key=lambda f: (order.get(f["name"], len(order)), f["name"]))
+        for name in (("notes.md",) if not files else ()) + ("journal.md",):
+            p = os.path.join(rdir, name)
+            if os.path.isfile(p):
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    files.append({"name": name, "mtime": os.path.getmtime(p), "content": f.read()})
+        return files
     return sorted(files, key=lambda f: f["name"])
 
 
@@ -117,8 +120,9 @@ def read_context(rdir):
         history = json.loads(text(os.path.join(rdir, "history.json")) or "[]")
     except ValueError:
         history = []
-    notes = text(os.path.join(rdir, "notes.md"))
-    system = text(os.path.join(ROOT, "api_player", "prompt.md")) + "\n\n# Your notes\n" + (notes or "(empty)")
+    pages = Notes(os.path.join(rdir, "notes"))
+    pages.load(legacy_file=os.path.join(rdir, "notes.md"))
+    system = text(os.path.join(ROOT, "api_player", "prompt.md")) + "\n\n# Your notes\n" + pages.render()
     journal = text(os.path.join(rdir, "journal.md"))
     if journal:
         system += ("\n\n# Journal (read-only: the game keeps every sign and recording you have read or heard)\n"

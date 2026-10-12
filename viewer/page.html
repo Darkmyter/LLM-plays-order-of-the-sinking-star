@@ -718,9 +718,9 @@ function summary(e) {
     case "undo": return "undo" + (a.steps > 1 ? ` ×${a.steps}` : "");
     case "action": return a.name.replace(/_/g, " ");
     case "select_character": return `select hero ${a.number}`;
-    case "write_note": return `wrote note “${a.name}”`;
+    case "write_note": return `wrote note “${a.name || a.page}”`;
     case "append_note": return `added to note “${a.name}”`;
-    case "note": return `noted (${a.kind}): ${a.text || ""}`;
+    case "note": return `noted in “${a.page}”: ${a.text || ""}`;
     case "read_note": return `read note “${a.name}”`;
     case "list_notes": return "listed notes";
     case "world_map": return "checked world map";

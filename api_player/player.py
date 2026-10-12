@@ -2,7 +2,7 @@
 
 A run is a folder runs/api/<name>/ (see game/runs.py) holding meta.json, history.json (the
 message list the model sees, pruned; saved every turn so a run can be resumed), transcript.jsonl
-(every message ever sent or received, append-only, for the viewer), notes.md, log.jsonl (every
+(every message ever sent or received, append-only, for the viewer), notes/ (the notes pages), log.jsonl (every
 tool call) and state/ (discovered signs, object labels).
 """
 import json
@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(HERE))  # so `game` and `api_player` import w
 
 from api_player.compact import compact_result, stub_result  # noqa: E402
 from api_player.llm import Usage, load_config, make_client  # noqa: E402
+from api_player.notes import Notes  # noqa: E402
 from game import runs  # noqa: E402
 
 MODE = "api"
@@ -43,18 +44,18 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
         "name": "note",
-        "description": "Add one line to your notes (shown at the top of every turn). kind 'seen': something "
-                       "you directly observed, with where. kind 'believe': a guess or a general rule, with how "
-                       "sure you are. Cheap, so use it the moment you learn or guess something.",
+        "description": "Add one line to a page of your notes (the page is created if it does not exist). All pages "
+                       "are shown at the top of every turn. Pages are yours to choose, e.g. progress, mechanics, "
+                       "characters, levels/<name>.",
         "parameters": {"type": "object", "properties": {
-            "kind": {"type": "string", "enum": ["seen", "believe"]}, "text": {"type": "string"}},
-            "required": ["kind", "text"]}}},
+            "page": {"type": "string", "description": "page name, e.g. progress"},
+            "text": {"type": "string"}}, "required": ["page", "text"]}}},
     {"type": "function", "function": {
         "name": "write_note",
-        "description": "Replace all your notes (markdown): use it to tidy them, e.g. merge lines, drop guesses "
-                       "that turned out wrong. Keep the '## Seen' and '## Believe' sections.",
-        "parameters": {"type": "object", "properties": {"text": {"type": "string"}},
-                       "required": ["text"]}}},
+        "description": "Replace a whole page of your notes (markdown), e.g. to tidy it, merge lines or drop guesses "
+                       "that turned out wrong. Empty text deletes the page.",
+        "parameters": {"type": "object", "properties": {
+            "page": {"type": "string"}, "text": {"type": "string"}}, "required": ["page", "text"]}}},
 ]
 
 
@@ -74,7 +75,7 @@ class Run:
         self.effort = ""          # reasoning effort for this run; "" = the config.toml default
         self.cut_pending = False  # True after the player was asked what to save, until the cut happens
         self.recorder = None      # game + viewer recording (game/recorder.py), created on first use
-        self.notes = ""
+        self.notes = Notes(os.path.join(self.dir, "notes"))
         self.status = "idle"
         self.last_line = ""
         self.phase, self.phase_since = "idle", time.time()
@@ -103,18 +104,17 @@ class Run:
             pass
         for k, v in meta.get("usage", {}).items():
             setattr(self.usage, k, v)
-        for fname, attr, default in (("history.json", "messages", []), ("notes.md", "notes", "")):
-            try:
-                with open(self._path(fname), encoding="utf-8") as f:
-                    setattr(self, attr, json.load(f) if fname.endswith(".json") else f.read())
-            except FileNotFoundError:
-                setattr(self, attr, default)
+        try:
+            with open(self._path("history.json"), encoding="utf-8") as f:
+                self.messages = json.load(f)
+        except FileNotFoundError:
+            self.messages = []
+        self.notes.load(legacy_file=self._path("notes.md"))
 
     def save(self):
         with open(self._path("history.json"), "w", encoding="utf-8") as f:
             json.dump(self.messages, f)
-        with open(self._path("notes.md"), "w", encoding="utf-8") as f:
-            f.write(self.notes)
+        self.notes.save()
         u = self.usage
         runs.write_meta(MODE, self.name, model=self.cfg["model"], effort=self.effort, turns=self.turns,
                         status=self.status,
@@ -149,10 +149,9 @@ class Run:
                 from game.game_state import world_map
                 result = world_map(self.session().game)
             elif name == "write_note":
-                self.notes = str(args.get("text", ""))
-                result = f"notes saved ({len(self.notes)} chars)"
+                result = self.notes.write(args.get("page", ""), args.get("text", ""))
             elif name == "note":
-                result = self.add_note(str(args.get("kind", "")), str(args.get("text", "")))
+                result = self.notes.append(args.get("page", ""), args.get("text", ""), self.turns)
             else:
                 result = f"unknown tool {name}"
         except Exception as e:  # game closed or restarted: reconnect on the next call
@@ -163,25 +162,6 @@ class Run:
         if name in ("act", "look"):
             self.update_journal(result)
         return result
-
-    def add_note(self, kind, text):
-        """Append one bullet to the '## Seen' or '## Believe' section of the notes (created if missing)."""
-        if kind not in ("seen", "believe") or not text.strip():
-            return "note needs kind 'seen' or 'believe' and some text"
-        head = "## Seen" if kind == "seen" else "## Believe"
-        lines = self.notes.rstrip().split("\n") if self.notes.strip() else []
-        at = next((i for i, l in enumerate(lines) if l.strip() == head), None)
-        if at is None:
-            lines += ([""] if lines else []) + [head]
-            at = len(lines) - 1
-        end = at + 1
-        while end < len(lines) and not lines[end].startswith("## "):
-            end += 1
-        while end - 1 > at and not lines[end - 1].strip():
-            end -= 1
-        lines.insert(end, f"- (turn {self.turns}) {text.strip()}")
-        self.notes = "\n".join(lines) + "\n"
-        return f"noted under {head[3:]}"
 
     def nudges(self, result):
         """Neutral prompts to learn from what just happened. They say nothing about how the game works."""
@@ -195,14 +175,13 @@ class Run:
             if kind not in self.seen_kinds:
                 self.seen_kinds.add(kind)
                 out.append("(A kind of stop you have not met before. If it taught you something, "
-                           "record it with note().)")
+                           "record it in your notes.)")
             elif key in self.seen_stops:
                 out.append("(This exact stop has happened on this tile before.)")
             self.seen_stops.add(key)
         if self.turns - max(self.last_note_turn, self.last_nudge_turn) >= 15:
             self.last_nudge_turn = self.turns
-            out.append("(You have not touched your notes for a while. Anything seen or guessed since? "
-                       "note() takes one line.)")
+            out.append("(You have not touched your notes for a while. Anything worth keeping since?)")
         return ("\n" + "\n".join(out)) if out else ""
 
     def update_journal(self, result):
@@ -252,8 +231,7 @@ class Run:
 
     # ---- context ----
     def build_messages(self):
-        system = self.system_prompt() + (f"\n\n# Your notes\n{self.notes}" if self.notes else
-                                         "\n\n# Your notes\n(empty)")
+        system = self.system_prompt() + "\n\n# Your notes\n" + self.notes.render()
         if self.journal:
             system += ("\n\n# Journal (read-only: the game keeps every sign and recording you have read or heard)\n"
                        + self.journal)
