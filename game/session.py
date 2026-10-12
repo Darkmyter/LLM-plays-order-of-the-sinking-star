@@ -8,7 +8,7 @@ import time
 from game import keys
 from game.dialogue import bark_text
 from game.game_state import (Game, blocks_tile, nkey, render, numbering, label, dialogue_lines, on_grid, in_window,
-                        fence_edges, FENCE_STEP, POSITION, OPEN_WORLD_LEVELS, ST_ACTIVE)
+                        fence_edges, FENCE_STEP, POSITION, OPEN_WORLD_LEVELS, ST_ACTIVE, sunk_rocks)
 
 # Camera-relative WASD -> grid directions (verified in heroes1: D=+x/east, S=-y/south).
 MOVES = {"north": "W", "south": "S", "west": "A", "east": "D"}
@@ -462,8 +462,10 @@ class Session:
         if (dy and (x, min(y, ty)) in horiz) or (dx and (min(x, tx), y) in vert):
             return f"a fence on the {direction} edge of your tile"
         lab = numbered or numbering(state["objects"])
+        in_water = sunk_rocks(state, z)
+        floor_tiles = {(round(o["pos"][0]), round(o["pos"][1])) for o in in_water}
         there = [o for o in state["objects"] if o["kind"] != "Fence" and not o.get("selected") and on_grid(o)
-                 and blocks_tile(o)
+                 and blocks_tile(o) and o not in in_water
                  and (round(o["pos"][0]), round(o["pos"][1])) == (tx, ty) and abs(round(o["pos"][2]) - z) <= 1]
         if there:
             names = " and ".join(label(o, lab) for o in there)
@@ -479,7 +481,7 @@ class Session:
                     behind.append("a fence")
                 elif any(zz >= z for zz in col):
                     behind.append("a wall")
-                elif not any(z - 3 <= zz < z for zz in col):
+                elif not any(z - 3 <= zz < z for zz in col) and (bx, by) not in floor_tiles:
                     behind.append("no floor")
                 why += " (it did not move; behind it at " + f"({bx},{by}): " + (
                     " and ".join(behind) if behind else "open floor") + ")"
@@ -487,7 +489,7 @@ class Session:
         column = [zz for (cx, cy, zz) in state["solid"] if (cx, cy) == (tx, ty)]
         if any(zz >= z for zz in column):
             return f"a wall at ({tx},{ty})"
-        if not any(z - 3 <= zz < z for zz in column):
+        if not any(z - 3 <= zz < z for zz in column) and (tx, ty) not in floor_tiles:
             return f"no floor at ({tx},{ty})"
         return None
 
@@ -541,18 +543,22 @@ class Session:
         # Only things inside both views can be seen to change; the rest just scrolled.
         # Things at other heights are not on the map or in the object list, so their changes are not shown either.
         levels = {before.get("layer", 0), after.get("layer", 0)}
-        both = lambda pos: ((wb is None or in_window(pos, wb))
-                            and (wa is None or in_window(pos, wa))
-                            and round(pos[2]) in levels)
+
+        def shown(pos, kind=None):
+            """Terrain tiles come as (x, y); objects as (x, y, z). A rock one level down is floor, so it counts."""
+            return len(pos) < 3 or round(pos[2]) in levels or (kind == "Rock" and round(pos[2]) + 1 in levels)
+
+        both = lambda pos, kind=None: ((wb is None or in_window(pos, wb))
+                                       and (wa is None or in_window(pos, wa)) and shown(pos, kind))
         out = []
         if wb != wa and wa is not None:
             out.append(f"the view moved: now showing x={wa[0]}..{wa[2]}, y={wa[1]}..{wa[3]}")
         for k in a.keys() - b.keys():
-            if both(a[k]["pos"]) and a[k]["kind"] != "Fence":
+            if both(a[k]["pos"], a[k]["kind"]) and a[k]["kind"] != "Fence":
                 out.append(f"{label(a[k], lab)} appeared at {p(a[k])}")
         for k in b.keys() - a.keys():
             o = b[k]
-            if not both(o["pos"]) or o["kind"] == "Fence":
+            if not both(o["pos"], o["kind"]) or o["kind"] == "Fence":
                 continue
             if o["kind"] == "Freezer":
                 held = [label(b[kk], lab) for kk in o.get("holding", []) if kk in b]
@@ -568,6 +574,8 @@ class Session:
                 out.append(f"{label(o, lab)} disappeared from {p(o)}")
         for k in a.keys() & b.keys():
             o, n = b[k], a[k]
+            if not (shown(o["pos"], o["kind"]) or shown(n["pos"], n["kind"])):
+                continue                       # something at another height: not on the map, so not reported
             name = label(n, lab)
             if p(o) != p(n):
                 out.append(f"{name} moved {p(o)} -> {p(n)}")

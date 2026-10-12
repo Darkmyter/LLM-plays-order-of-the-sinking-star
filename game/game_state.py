@@ -710,6 +710,15 @@ def fence_text(horiz, vert, window):
                      for (x, y), s in sorted(edges.items(), key=lambda kv: (-kv[0][1], kv[0][0])))
 
 
+def sunk_rocks(state, zh):
+    """Rocks lying in the water one level below the hero's floor: where a rock fell in, it is now floor.
+    The terrain data has nothing there, so without this the tile would look like open water."""
+    solid = state["solid"]
+    return [o for o in state["objects"] if o["kind"] == "Rock" and on_grid(o) and round(o["pos"][2]) == zh - 1
+            and not o.get("falling") and not o.get("dead")
+            and (round(o["pos"][0]), round(o["pos"][1]), zh - 1) not in solid]
+
+
 def floor_rows(state):
     """Terrain you can stand on at your own height, as exact x ranges per row. The same data as
     the '.' tiles of the map, but with the coordinates written out: reading a column number off a
@@ -727,10 +736,11 @@ def floor_rows(state):
         y0, y1 = min(y for _, y in tiles), max(y for _, y in tiles)
     blocked = {(round(o["pos"][0]), round(o["pos"][1])) for o in state["objects"]
                if on_grid(o) and round(o["pos"][2]) == zh and blocks_tile(o)}
+    in_water = {(round(o["pos"][0]), round(o["pos"][1])) for o in sunk_rocks(state, zh)}
     rows = []
     for y in range(y1, y0 - 1, -1):
         xs = [x for x in range(x0, x1 + 1)
-              if (x, y, zh - 1) in solid and (x, y, zh) not in solid and (x, y) not in blocked]
+              if ((x, y, zh - 1) in solid or (x, y) in in_water) and (x, y, zh) not in solid and (x, y) not in blocked]
         runs, i = [], 0
         while i < len(xs):
             j = i
@@ -816,13 +826,16 @@ def render(state, numbered=None):
         # hero > freezer (it encases what is inside) > other objects > flat floor things
         return (o["kind"] != "Guy", o["kind"] != "Freezer", o["kind"] in FLOOR_KINDS, o["kind"], o["id"])
 
+    sunk = sunk_rocks(state, zh)
+    sunk_tiles = {(round(o["pos"][0]), round(o["pos"][1])) for o in sunk}
+
     def tile(x, y):
         here = stacks.get((x, y))
         if here:
             return glyph_of(min(here, key=priority))
         if (x, y, zh) in solid:
             return WALL
-        return "." if (x, y, zh - 1) in solid else " "
+        return "." if (x, y, zh - 1) in solid or (x, y) in sunk_tiles else " "
 
     in_view = {}
     for o in map_objs:
@@ -910,7 +923,7 @@ def render(state, numbered=None):
     # Like the map, the list shows what is at your own height. Things at other heights are not listed
     # (they appear as soon as you are at their height); the count below says some exist.
     listed = [o for o in state["objects"] if o["kind"] != "Fence"
-              and (round(o["pos"][2]) == zh or (o["kind"], o["id"]) in held_by)]
+              and (round(o["pos"][2]) == zh or (o["kind"], o["id"]) in held_by or o in sunk)]
     elsewhere = sum(1 for o in state["objects"] if o["kind"] not in ("Fence", "Wardrobe")
                     and o not in listed and not (state["window"] and not in_window(
                         tuple(round(v) for v in o["pos"]), state["window"])))
@@ -983,8 +996,10 @@ def render(state, numbered=None):
                     extra.append("standing on " + " and ".join(label(p, numbered) for p in below))
         if o.get("name"):
             extra.append(f"name={o['name']}")
+        if o in sunk:   # drawn as floor on the map, so it is listed with the floor's symbol
+            extra.append("lies in the water, level with the floor")
         pos = f"({x},{y},{z - zh:+d})" if on_grid(o) else f"(~{o['pos'][0]:.1f},~{o['pos'][1]:.1f}) off-grid"
-        lines.append(f"  {glyph_of(o)} {label(o, numbered)} at {pos} " + ", ".join(e for e in extra if e))
+        lines.append(f"  {'.' if o in sunk else glyph_of(o)} {label(o, numbered)} at {pos} " + ", ".join(e for e in extra if e))
     if elsewhere:
         lines.append(f"({elsewhere} more object{'s' if elsewhere > 1 else ''} in view at other heights, not shown.)")
     return "\n".join(lines)
