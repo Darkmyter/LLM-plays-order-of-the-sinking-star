@@ -170,6 +170,11 @@ table.st .bar { display: inline-block; height: 8px; background: var(--info); bor
 table.st .ok { color: var(--good); } table.st .dim { color: var(--muted); }
 table.st td.cell { text-align: center; }
 .stuck { color: var(--bad); }
+.pmap { width: 100%; max-height: 72vh; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.pmap text { fill: var(--muted); font-family: system-ui, sans-serif; pointer-events: none; }
+.pmap text.area { fill: var(--text); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chip2 { padding: 2px 9px; border-radius: 99px; border: 1px solid var(--line); font-size: 12px; }
 </style></head>
 <body>
 <div id="landing" class="screen">
@@ -193,7 +198,7 @@ table.st td.cell { text-align: center; }
     <button id="newbtn">Start new run</button>
   </div>
   <p class="hint" id="newhint"></p>
-  <button id="comparebtn">Compare all runs</button>
+  <button id="comparebtn">Compare all runs</button> <button id="mapbtn">Progress map</button>
 </div>
 <div id="promptmodal" class="screen modal">
   <div class="box">
@@ -221,6 +226,7 @@ table.st td.cell { text-align: center; }
     <span id="statsmetric" style="display:none">
       <button data-m="seconds" class="active">Time</button><button data-m="cost">Cost</button><button data-m="tokens">Tokens</button>
     </span>
+    <select id="mapsel" style="display:none"></select>
     <span class="pill" id="statssum"></span>
     <span class="spacer"></span>
     <button id="statsclose">Close</button>
@@ -1121,11 +1127,63 @@ setInterval(pollLive, 1000);
       else { view = await (await fetch(`/compare?mode=${MODE}`)).json(); compareView(view); }
     } catch (e) { $("statsbody").textContent = "could not load stats: " + e; }
   }
-  const open = () => { $("statstitle").textContent = RUN ? "Stats · " + RUN : "Compare runs";
-    $("statsmetric").style.display = RUN ? "none" : ""; $("statspanel").classList.add("open");
-    refresh(); timer = setInterval(() => RUN && refresh(), 5000); };
-  $("statsbtn").onclick = open;
-  $("comparebtn").onclick = open;
+  // ----- progress map: every level of the game, coloured by how far the runs got -----
+  let mapSel = "";
+  async function mapView() {
+    const [world, all] = await Promise.all([fetch("/levels").then(r => r.json()), fetch(`/compare?mode=${MODE}`).then(r => r.json())]);
+    const pick = all.filter(s => !mapSel || s.run === mapSel);
+    $("mapsel").innerHTML = `<option value="">All runs (${all.length})</option>` + all.map(s =>
+      `<option value="${esc(s.run)}"${s.run === mapSel ? " selected" : ""}>${esc(s.run)} · ${s.progress.solved} solved</option>`).join("");
+    $("mapsel").onchange = () => { mapSel = $("mapsel").value; mapView(); };
+    const by = {};   // level -> [{run, row}]
+    for (const s of pick) for (const r of s.levels) (by[r.name] ||= []).push({ run: s.run, r });
+    const hue = (lv) => {
+      const l = by[lv] || [], n = pick.length || 1, sol = l.filter(x => x.r.solved).length;
+      if (sol) return `rgba(95,211,141,${(.35 + .65 * sol / n).toFixed(2)})`;
+      if (l.length) return `rgba(245,197,66,${(.35 + .65 * l.length / n).toFixed(2)})`;
+      return "transparent";
+    };
+    const tip = lv => [lv, ...(by[lv] || []).map(x => `${x.run}: ${x.r.solved ? "solved" : "reached"}, ${mmss(x.r.seconds)}` +
+      (x.r.cost ? `, ${money(x.r.cost)}` : ""))].concat(by[lv] ? [] : ["nobody has reached this level"]).join(String.fromCharCode(10));
+    const known = new Set((world.levels || []).map(l => l.name));
+    const other = Object.keys(by).filter(k => !known.has(k));
+    const reached = lv => (by[lv] || []).length, solvedBy = lv => (by[lv] || []).filter(x => x.r.solved).length;
+    let h = "";
+    if (world.levels && world.levels.length) {
+      const xs = world.levels.map(l => l.pos[0]).concat(world.areas.map(a => a.pos[0]));
+      const ys = world.levels.map(l => -l.pos[1]).concat(world.areas.map(a => -a.pos[1]));
+      const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      const span = Math.max(x1 - x0, y1 - y0, 1), pad = span * .06, rad = span / 130, fs = span / 60;
+      let svg = `<svg class="pmap" viewBox="${x0 - pad} ${y0 - pad} ${x1 - x0 + 2 * pad} ${y1 - y0 + 2 * pad}">`;
+      for (const l of world.levels)
+        svg += `<circle cx="${l.pos[0]}" cy="${-l.pos[1]}" r="${rad}" fill="${hue(l.name)}" stroke="${reached(l.name) ? "none" : "#8a96a6"}" stroke-width="${rad / 4}"><title>${esc(tip(l.name))}</title></circle>`;
+      for (const a of world.areas) {
+        const mine = world.levels.filter(l => l.area === a.key);
+        svg += `<text class="area" x="${a.pos[0]}" y="${-a.pos[1] - rad * 2}" font-size="${fs}" text-anchor="middle">${esc(a.name)} ${mine.filter(l => solvedBy(l.name)).length}/${mine.length}</text>`;
+      }
+      h += svg + "</svg>";
+      const tot = world.levels.length, rs = world.levels.filter(l => reached(l.name)).length, sv = world.levels.filter(l => solvedBy(l.name)).length;
+      $("statssum").textContent = `${sv}/${tot} levels solved · ${rs}/${tot} reached · ${pick.length} run${pick.length === 1 ? "" : "s"}`;
+    } else {
+      $("statssum").textContent = "";
+      h += `<p class="hint">No full level list yet. With the game in the open world, run <b>uv run python -m tools.dump_levels</b> to extract every level and area; the map then fills in. Until then, only the levels the runs reached are shown.</p>`;
+    }
+    const ord = (world.levels && world.levels.length ? other : Object.keys(by));
+    if (ord.length) h += `<h3>${world.levels && world.levels.length ? "Reached, but not on the world map" : "Reached"}</h3><div class="chips">` +
+      ord.map(k => `<span class="chip2" style="background:${hue(k)}" title="${esc(tip(k))}">${esc(k)}</span>`).join("") + "</div>";
+    h += `<p class="hint">Green = solved (stronger = more runs), yellow = reached but not solved, hollow = nobody got there. Hover a dot for who got there and what it cost.</p>`;
+    $("statsbody").innerHTML = h;
+  }
+
+  const open = (kind) => { const map = kind === "map";
+    $("statstitle").textContent = map ? "Progress map" : RUN ? "Stats · " + RUN : "Compare runs";
+    $("statsmetric").style.display = RUN || map ? "none" : ""; $("mapsel").style.display = map ? "" : "none";
+    $("statspanel").classList.add("open");
+    const go = map ? mapView : refresh; go();
+    timer = setInterval(() => (map || RUN) && go(), 5000); };
+  $("statsbtn").onclick = () => open();
+  $("comparebtn").onclick = () => open();
+  $("mapbtn").onclick = () => open("map");
   $("statsclose").onclick = () => { $("statspanel").classList.remove("open"); clearInterval(timer); };
   $("statsmetric").querySelectorAll("button").forEach(b => b.onclick = () => {
     metric = b.dataset.m;

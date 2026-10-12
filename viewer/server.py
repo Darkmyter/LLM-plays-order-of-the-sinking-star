@@ -156,6 +156,12 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/compare":
             mode = q.get("mode", [""])[0]
             self.send_json(stats.compare(mode) if mode in runs.MODES else [])
+        elif url.path == "/levels":
+            try:   # every level and area of the game, from tools/dump_levels.py
+                with open(os.path.join(ROOT, "game", "levels.json"), encoding="utf-8") as f:
+                    self.send_json(json.load(f))
+            except (FileNotFoundError, ValueError):
+                self.send_json({})
         elif url.path == "/info":
             self.send_json({"workspace": WORKSPACE})
         elif url.path in ("/log", "/snapshot", "/voice", "/notes", "/messages", "/context", "/stats"):
