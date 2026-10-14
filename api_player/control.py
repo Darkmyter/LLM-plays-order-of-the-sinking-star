@@ -4,7 +4,8 @@
 
 GET  /runs                 -> list of runs (name, model, turns, cost, status, updated)
 GET  /status               -> the active run's live status
-POST /new     {name?, model?}   create a run and start it
+POST /new     {name?, model?, effort?, scope?}   create a run and start it; scope "level" = solve the level
+                                the game is in now (prompt written from the objects in it), then stop
 POST /resume  {name}            load an existing run and start it
 POST /pause | /unpause | /stop
 POST /config  {model?, effort?} change the model / reasoning effort for the active run (next turn)
@@ -37,7 +38,7 @@ def status():
             "recording": active.recording_status()}
 
 
-def start_run(name, create, model=None, effort=None):
+def start_run(name, create, model=None, effort=None, scope="game"):
     global active
     if active is not None and active.thread and active.thread.is_alive():
         return {"error": f"run '{active.name}' is still running; stop it first"}
@@ -49,12 +50,21 @@ def start_run(name, create, model=None, effort=None):
         return {"error": f"run '{name}' already exists"}
     if not create and not runs.exists(MODE, name):
         return {"error": f"no run named '{name}'"}
-    active = Run(name, cfg, create=create)  # a resumed run uses the model from config.toml unless given
+    run = Run(name, cfg, create=create, scope=scope if create else "game")
+    missing = []
+    if create and scope == "level":
+        try:
+            missing = run.prepare_level()
+        except Exception as e:
+            import shutil
+            shutil.rmtree(run.dir, ignore_errors=True)
+            return {"error": f"cannot start a single-level run: {e}"}
+    active = run  # a resumed run uses the model from config.toml unless given
     if effort is not None:                  # "" = the config.toml default
         active.effort = effort if effort in EFFORTS else ""
         active.save()                       # so a page opened right now shows it, not the old value
     active.start()
-    return status()
+    return dict(status(), missing_rules=missing)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -97,7 +107,8 @@ class Handler(BaseHTTPRequestHandler):
             body = {}
         p = self.path
         if p == "/new":
-            self.reply(start_run(body.get("name"), True, body.get("model"), body.get("effort")))
+            self.reply(start_run(body.get("name"), True, body.get("model"), body.get("effort"),
+                                  "level" if body.get("scope") == "level" else "game"))
         elif p == "/resume":
             self.reply(start_run(body.get("name"), False, body.get("model"), body.get("effort")))
         elif active is None:

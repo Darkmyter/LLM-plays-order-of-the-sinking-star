@@ -96,6 +96,16 @@ OUTFIT = {"MULTIPUSH": "the Warrior's outfit (red)", "PULL": "the Thief's outfit
           "SAILOR": "the Sailor's outfit", "TRADER": "the Trader's outfit"}
 
 
+# In a puzzle level a Door is a tile you stand on; the level ends when every one is active. (In the open world
+# a Door keeps its name.) Its "open" flag is shown as state active / inactive.
+GOAL_NAME = "Goal Pad"
+
+
+def name_of(o):
+    """Player-facing name of an object, without its number."""
+    return o.get("variant") or o.get("display") or DISPLAY.get(o["kind"], o["kind"].replace("_", " "))
+
+
 COMPASS8 = ["east", "north-east", "north", "north-west", "west", "south-west", "south", "south-east"]
 # A mirror's stored orientation is not the way it looks: with the identity orientation (yaw 0, which reads as
 # "east") the mirror is drawn as a diagonal slab whose front faces south-west. Seen in mirror_1 (one sample);
@@ -154,8 +164,11 @@ class Types:
 
 
 class Game:
-    def __init__(self, full=False):
+    def __init__(self, full=False, zero_origin=False):
+        """zero_origin: in a puzzle level, shift every coordinate so the level's lowest wall/floor x and y are 0."""
         self.p = Process()
+        self.zero_origin = zero_origin
+        self._origins = {}
         self.types = Types()
         self.full = full
         self.delta = self.p.module_base - EXE_IMAGE_BASE
@@ -435,6 +448,61 @@ class Game:
                             cells.append(c)
         return cells
 
+    def level_origin(self, mgr, level, buckets):
+        """(x, y) of the level's lowest terrain tile, found once per level (all terrain, not just the view)."""
+        if level not in self._origins:
+            xs, ys = [], []
+            for a in self.entities_of(mgr, buckets["Wall_Set"]) if "Wall_Set" in buckets else []:
+                w = self.read_walls(a)
+                if w[8] == 0:
+                    cells = self.wall_cells(w)
+                    xs += [c[0] for c in cells]
+                    ys += [c[1] for c in cells]
+            self._origins[level] = (min(xs), min(ys)) if xs else (0, 0)
+        return self._origins[level]
+
+    @staticmethod
+    def shift_state(state, ox, oy):
+        """Move every coordinate in a snapshot by (-ox, -oy)."""
+        sh = lambda p: (p[0] - ox, p[1] - oy) + tuple(p[2:])
+        for o in state["objects"]:
+            o["pos"] = sh(o["pos"])
+            if o.get("mirage"):
+                o["mirage"] = {k: sh(v) for k, v in o["mirage"].items()}
+            if o.get("unlock_far"):
+                o["unlock_far"] = {i: sh(p) for i, p in o["unlock_far"].items()}
+        state["solid"] = {sh(c) for c in state["solid"]}
+        state["water"] = {sh(c) for c in state["water"]}
+        if state["window"]:
+            x0, y0, x1, y1 = state["window"]
+            state["window"] = (x0 - ox, y0 - oy, x1 - ox, y1 - oy)
+        state["origin"] = (ox, oy)
+
+    def water_tiles(self, mgr, buckets, layer, window=None):
+        """Tiles covered by water just below the hero's floor, from the level's ocean maps. A tile without floor
+        that is inside one is water; outside every ocean it is nothing (a drop)."""
+        out = set()
+        if "Ocean_Map" not in buckets:
+            return out
+        F, size = self.types.fields("Ocean_Map"), self.types.size("Ocean_Map")
+        for a in self.entities_of(mgr, buckets["Ocean_Map"]):
+            buf = self.p.read(a, size)
+            if not buf:
+                continue
+            sx, sy = struct.unpack_from("<qq", buf, F["grid"][1])
+            cx, cy, _ = struct.unpack_from("<3i", buf, F["grid"][1] + 28)
+            pos = struct.unpack_from("<3f", buf, POSITION)
+            surface = round(pos[2] + self.decode_field(buf, *F["sink"]))
+            n, ptr = struct.unpack_from("<qQ", buf, F["ocean_values"][1])
+            if not (0 < sx * sy <= n and ptr and layer - LAYER_BELOW <= surface < layer):
+                continue
+            vals = self.p.read(ptr, sx * sy)
+            x0, y0, x1, y1 = window or (cx, cy, cx + sx - 1, cy + sy - 1)
+            for y in range(max(y0, cy), min(y1, cy + sy - 1) + 1):
+                row = (y - cy) * sx
+                out.update((x, y) for x in range(max(x0, cx), min(x1, cx + sx - 1) + 1) if vals[row + x - cx])
+        return out
+
     # ---------- snapshot ----------
     def snapshot(self):
         mgr = self.current_manager()
@@ -519,8 +587,19 @@ class Game:
                 f["holding"] = [(o["kind"], o["id"]) for o in heroes + objects
                                 if o is not f and o["kind"] not in ("Freezer", "Fence")
                                 and tile(o) == tile(f) and abs(o["pos"][2] - f["pos"][2]) <= 1.01]
-        return {"manager": hex(mgr), "level": level, "open_world": open_world, "layer": layer,
-                "window": window, "solid": solid, "objects": heroes + objects}
+        if not open_world and not self.full:
+            for o in objects:
+                if o["kind"] == "Door":
+                    o["display"] = GOAL_NAME
+                    o.pop("facing", None)
+                    props = o.setdefault("props", {})
+                    props["state"] = "active" if props.pop("open", False) else "inactive"
+        water = self.water_tiles(mgr, buckets, layer, window) if sel and not self.full else set()
+        state = {"manager": hex(mgr), "level": level, "open_world": open_world, "layer": layer,
+                 "window": window, "solid": solid, "objects": heroes + objects, "water": water}
+        if self.zero_origin and sel and not open_world and not self.full:
+            self.shift_state(state, *self.level_origin(mgr, level, buckets))
+        return state
 
 
 def compass(dx, dy):
@@ -612,6 +691,7 @@ GLYPH = {"Guy": "@", "Rock": "R", "Door": "D", "Fence": "f", "Npc": "N", "Sign":
 OTHER_GLYPH = "&"   # kinds without their own symbol
 # Terrain above your floor is a wall: the hero cannot walk through any of it, however high.
 WALL = "#"
+WATER = "~"   # no floor, and the level's ocean is there
 # Flat things you stand on; when something else shares the tile, that thing is drawn instead.
 FLOOR_KINDS = {"Switch", "Level_Entry", "Checkpoint", "Teleporter", "Gem_Slot", "Arrow", "Stairs",
                "Elevator_Platform"}
@@ -636,7 +716,7 @@ def label(o, numbered):
         return f"Hero {o['num']}"
     if o["kind"] == "Guy" and o.get("model"):
         return f"Hero ({hero_name(o)})"
-    name = o.get("variant") or DISPLAY.get(o["kind"], o["kind"].replace("_", " "))
+    name = name_of(o)
     return f"{name} {numbered[nkey(o)]}" if nkey(o) in numbered else name
 
 
@@ -828,6 +908,7 @@ def render(state, numbered=None):
 
     sunk = sunk_rocks(state, zh)
     sunk_tiles = {(round(o["pos"][0]), round(o["pos"][1])) for o in sunk}
+    water = state.get("water", set())
 
     def tile(x, y):
         here = stacks.get((x, y))
@@ -835,7 +916,9 @@ def render(state, numbered=None):
             return glyph_of(min(here, key=priority))
         if (x, y, zh) in solid:
             return WALL
-        return "." if (x, y, zh - 1) in solid or (x, y) in sunk_tiles else " "
+        if (x, y, zh - 1) in solid or (x, y) in sunk_tiles:
+            return "."
+        return WATER if (x, y) in water else " "
 
     in_view = {}
     for o in map_objs:
@@ -843,7 +926,7 @@ def render(state, numbered=None):
         if o["kind"] == "Guy":
             name = "you" if o.get("selected") else (f"Hero {o['num']}" if o.get("num") else "other hero")
         else:
-            name = o.get("variant") or DISPLAY.get(o["kind"], o["kind"].replace("_", " "))
+            name = name_of(o)
             if g == OTHER_GLYPH:
                 name = "other object (see list)"
         in_view.setdefault(g, set()).add(name)
@@ -873,13 +956,16 @@ def render(state, numbered=None):
     lines += ["  . floor at your level", "  # wall: blocks you"]
     if horiz or vert:
         lines.append("  | - fence on a tile edge: separates the two tiles it lies between and blocks you")
-    lines.append("  (space) drop, water or nothing")
+    shown_water = any(tile(x, y) == WATER for y in range(y0, y1 + 1) for x in xs_all)
+    if shown_water:
+        lines.append(f"  {WATER} water: no floor, you cannot stand there")
+    lines.append("  (space) " + ("nothing: no floor and no water" if water else "a drop, water or nothing"))
     shown = {}
     for o in map_objs:
         if o["kind"] == "Guy":
             name = "you" if o.get("selected") else (f"Hero {o['num']}" if o.get("num") else "other hero")
         else:
-            name = o.get("variant") or DISPLAY.get(o["kind"], o["kind"].replace("_", " "))
+            name = name_of(o)
         shown[(glyph_of(o), name)] = use_of(o)
     for (g, name), use in sorted(shown.items(), key=lambda kv: (kv[0][0] != "@", kv[0])):
         lines.append(f"  {g} {name}" + (f": {use}" if use else ""))
@@ -946,7 +1032,7 @@ def render(state, numbered=None):
             extra.append(f"outfit gate on the edge between ({x},{y}) and ({tx},{ty}); "
                          f"walk through to wear it")
         elif o["kind"] == "Mirror" and o.get("facing"):
-            extra.append(f"its front faces {o['facing']}")
+            extra.append(f"faces {o['facing']}")
             if o.get("mirage"):
                 extra.append(f"the game shows a teleport indicator: the hero at {o['mirage']['from']} "
                              f"appears at {o['mirage']['to']}")

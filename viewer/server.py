@@ -42,19 +42,29 @@ def read_jsonl(path, start=0):
     return out
 
 
-_game, _game_lock = None, threading.Lock()
+_games, _game_lock = {}, threading.Lock()   # one Game per coordinate style (zero_origin False / True)
+
+
+def get_game(zero_origin=False):
+    from game.game_state import Game
+    if zero_origin not in _games:
+        _games[zero_origin] = Game(zero_origin=zero_origin)
+    return _games[zero_origin]
 
 
 def current_screen(rdir):
     """Read the game right now (read-only, no keys pressed, not logged, no discoveries marked).
     Uses the run's saved labels so 'Rock 3' means the same rock in both maps."""
-    global _game
+    zero = False
+    try:   # single-level runs show coordinates from 0
+        with open(os.path.join(rdir, "meta.json"), encoding="utf-8") as f:
+            zero = json.load(f).get("scope") == "level"
+    except (FileNotFoundError, ValueError):
+        pass
     with _game_lock:
         try:
-            from game.game_state import Game, nkey, render
-            if _game is None:
-                _game = Game()
-            state = _game.snapshot()
+            from game.game_state import nkey, render
+            state = get_game(zero).snapshot()
             try:
                 with open(os.path.join(rdir, "state", "labels.json"), encoding="utf-8") as f:
                     saved = json.load(f).get(state["level"], {})
@@ -67,8 +77,31 @@ def current_screen(rdir):
                         (v for (_, k), v in numbered.items() if k == nkey(o)[1]), default=0)
             return render(state, numbered)
         except Exception as e:
-            _game = None
+            _games.pop(zero, None)
             return f"error: {e} (is the game running and in a level?)"
+
+
+def debug_level():
+    """The game's current level as the single-level player would get it: the view (no player needed, no keys
+    pressed, no labels saved), the rules written for the objects in it, and the full system prompt."""
+    with _game_lock:
+        try:
+            from game.game_state import render
+            from game.level_rules import rules_text
+            from api_player.actions import action_list, disabled_for
+            state = get_game(True).snapshot()
+        except Exception as e:
+            _games.pop(True, None)
+            return {"error": f"{e} (is the game running and in a level?)"}
+    rules, missing = rules_text(state)
+    try:
+        with open(os.path.join(ROOT, "api_player", "level_prompt.md"), encoding="utf-8") as f:
+            prompt = (f.read().replace("{rules}", rules or "(nothing described)")
+                      .replace("{actions}", action_list(disabled_for(state["objects"]))))
+    except FileNotFoundError:
+        prompt = ""
+    return {"level": state["level"], "open_world": state["open_world"], "screen": render(state),
+            "rules": rules, "missing": missing, "prompt": prompt}
 
 
 def read_speech(rdir, limit=300):
@@ -122,7 +155,12 @@ def read_context(rdir):
         history = []
     pages = Notes(os.path.join(rdir, "notes"))
     pages.load(legacy_file=os.path.join(rdir, "notes.md"))
-    system = text(os.path.join(ROOT, "api_player", "prompt.md")) + "\n\n# Your notes\n" + pages.render()
+    meta = runs.read_meta("api", os.path.basename(rdir)) or {}
+    prompt = text(os.path.join(ROOT, "api_player", "level_prompt.md" if meta.get("scope") == "level" else "prompt.md"))
+    from api_player.actions import action_list
+    system = (prompt.replace("{rules}", text(os.path.join(rdir, "level_rules.md")) or "(nothing described)")
+              .replace("{actions}", action_list(meta.get("disabled", []))))
+    system += "\n\n# Your notes\n" + pages.render()
     journal = text(os.path.join(rdir, "journal.md"))
     if journal:
         system += ("\n\n# Journal (read-only: the game keeps every sign and recording you have read or heard)\n"
@@ -172,6 +210,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(json.load(f))
             except (FileNotFoundError, ValueError):
                 self.send_json({})
+        elif url.path == "/debug":
+            self.send_json(debug_level())
         elif url.path == "/info":
             self.send_json({"workspace": WORKSPACE})
         elif url.path in ("/log", "/snapshot", "/voice", "/notes", "/messages", "/context", "/stats"):

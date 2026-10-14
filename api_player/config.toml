@@ -21,7 +21,10 @@ suggested_models = [
   "xiaomi/mimo-v2.6-pro",
   "qwen/qwen3.8-max-0902",
   "z-ai/glm-5.3-prime",
-  "openai/gpt-6.1-sol"
+  "openai/gpt-6.1-sol",
+  "openai/gpt-6-astra",
+  "anthropic/claude-fable-5.1"
+
 ]
 temperature = 0.3
 max_output_tokens = 20000   # reasoning models spend part of this thinking; too low = cut off before acting

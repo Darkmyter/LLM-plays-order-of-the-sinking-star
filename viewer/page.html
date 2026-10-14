@@ -71,6 +71,7 @@ h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing
 .c-wall1 { background: #29323d; box-shadow: inset 0 0 0 1px #3a4554; }
 .c-floor { background: var(--floor); }
 .c-void { background: transparent; }
+.c-water { background: #1b3a5c; }
 .c-obj { background: var(--floor); color: #000; }
 .c-hero { background: var(--accent); color: #000; box-shadow: 0 0 0 2px #fff6 inset; }
 .c-hero2 { background: #e0a43a; color: #000; outline: 2px solid #fff4; }
@@ -192,12 +193,21 @@ table.st td.cell { text-align: center; }
 .pmap { width: 100%; max-height: 72vh; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .pmap text { fill: var(--muted); font-family: system-ui, sans-serif; pointer-events: none; }
 .pmap text.area { fill: var(--text); font-weight: 600; }
+.dbgbody { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, .8fr); gap: 12px; padding: 12px; }
+.dbgbody section { min-height: 0; display: flex; flex-direction: column; }
+.dbgbody h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.dbgbody pre { flex: 1; min-height: 0; margin: 0; overflow: auto; padding: 10px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; font: 12px/1.35 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+.dbgbody pre.map { white-space: pre; }
+#dbg-ui { --cs: 20px; }
+#dbg-ui .scroll { flex: 1; min-height: 0; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .chip2 { padding: 2px 9px; border-radius: 99px; border: 1px solid var(--line); font-size: 12px; }
 </style></head>
 <body>
 <div id="landing" class="screen">
   <h1>Sinking Star Live</h1>
+  <p><button id="debugbtn2" title="Show the game's current level and the rules written for it, without any player">Debug: current level</button></p>
   <p>Who is playing?</p>
   <div class="cards">
     <a class="card" href="/?mode=api"><b>API player</b><span>A model through OpenRouter or a local llama server. Start, pause and resume from here.</span></a>
@@ -215,10 +225,41 @@ table.st td.cell { text-align: center; }
     <input id="newmodel" list="newmodels" placeholder="model id" size="32" style="display:none">
     <datalist id="newmodels"></datalist>
     <select id="neweffort" class="effort" style="display:none" title="Reasoning effort for the model (how much it thinks before acting)"></select>
+    <label id="levellbl" style="display:none" title="Solve only the level the game is in now. The prompt is written from the objects in it, and the run ends when the level is left."><input type="checkbox" id="newlevel"> single level (the game's current level)</label>
     <button id="newbtn">Start new run</button>
   </div>
   <p class="hint" id="newhint"></p>
   <button id="comparebtn">Compare all runs</button> <button id="mapbtn">Progress map</button>
+  <button id="debugbtn" title="Show the game's current level and the rules written for it, without any player">Debug: current level</button>
+</div>
+<div id="debugpanel" class="screen stats">
+  <div class="msghead">
+    <h2>Debug · current level</h2>
+    <span class="pill" id="dbglevel">–</span>
+    <label class="pill"><input type="checkbox" id="dbgauto" checked> refresh every 2 s</label>
+    <button id="dbgrefresh">Refresh</button>
+    <span class="spacer"></span>
+    <button id="dbgclose">Close</button>
+  </div>
+  <div class="dbgbody">
+    <section id="dbg-ui">
+      <h3>UI view</h3>
+      <div class="scroll">
+        <div class="where" id="dbg-where"></div>
+        <div class="heroes" id="dbg-heroes"></div>
+        <div class="mapwrap"><div id="dbg-map" class="map"></div></div>
+        <div id="dbg-legend"></div>
+        <h3 style="margin-top:14px">Objects</h3>
+        <div id="dbg-state" class="state"></div>
+        <div id="dbg-fences" class="fencetext"></div>
+      </div>
+    </section>
+    <section><h3>Text view (what the player is sent)</h3><pre class="map" id="dbgscreen"></pre></section>
+    <section>
+      <h3 id="dbgrulestitle">Rules written for this level</h3><pre id="dbgrules" style="flex:0 0 32%"></pre>
+      <h3 style="margin-top:10px">Full system prompt</h3><pre id="dbgprompt"></pre>
+    </section>
+  </div>
 </div>
 <div id="promptmodal" class="screen modal">
   <div class="box">
@@ -323,7 +364,7 @@ const COLORS = { R:"#c8a27a", D:"#7fb3ff", f:"#9aa5b1", N:"#e6a3ff", "?":"#ffe08
   ">":"#ffd166", W:"#c77dff", Z:"#90e0ef", E:"#f5c542", A:"#06d6a0", "$":"#ffd700", S:"#d4d4d4",
   u:"#adb5bd", H:"#e0aaff", "%":"#f4a261", "&":"#e76f51", c:"#2ec4b6", i:"#cdb4db", J:"#ffafcc",
   "^":"#e9ecef", ",":"#8d99ae", "!":"#ffbe0b" };
-const TERRAIN = "#.+= ";
+const TERRAIN = "#.+= ~";
 
 // ---------- parsing the text the player gets ----------
 function parseView(text) {
@@ -451,8 +492,8 @@ function kindOf(label) { return label.replace(/\s+\d+$/, "").replace(/\s*\(.*\)$
 
 function badgeClass(p) {
   if (/^\(you/.test(p)) return "you";
-  if (/(=True|^thawed|state=solved|status=(read|played|activated)|discovered=True)/.test(p)) return "good";
-  if (/(=False|^frozen|state=locked|not read|not played|not activated|^dead|falling)/.test(p)) return "bad";
+  if (/(=True|^thawed|state=solved|state=active|status=(read|played|activated)|discovered=True)/.test(p)) return "good";
+  if (/(=False|^frozen|state=inactive|state=locked|not read|not played|not activated|^dead|falling)/.test(p)) return "bad";
   if (/^(holding|inside|under|standing on|switch to it)/.test(p)) return "info";
   return "";
 }
@@ -460,7 +501,7 @@ function badgeClass(p) {
 // ---------- drawing ----------
 function tileClass(ch) {
   return ch === "#" ? "c-wall" : ch === "=" ? "c-wall2" : ch === "+" ? "c-wall1" : ch === "." ? "c-floor"
-    : ch === " " ? "c-void" : ch === "@" ? "c-hero" : (/[1-9h]/.test(ch) ? "c-hero2" : "c-obj");
+    : ch === "~" ? "c-water" : ch === " " ? "c-void" : ch === "@" ? "c-hero" : (/[1-9h]/.test(ch) ? "c-hero2" : "c-obj");
 }
 
 // Colours that show an object's state at a glance (entrances by progress, outfits by owner).
@@ -574,8 +615,7 @@ function renderMap(el, v, other, box) {
   el.appendChild(frag);
 }
 
-function renderLegend(v) {
-  const lg = $("legend");
+function renderLegend(v, lg = $("legend")) {
   lg.innerHTML = "";
   if (!v) return;
   const items = [];
@@ -586,6 +626,7 @@ function renderLegend(v) {
   if ((v.objs || []).some(o => o.g === "E"))
     items.push(["E:solved", "entrance solved"], ["E:unsolved", "entrance unsolved"], ["E:locked", "entrance locked"]);
   items.push([".", "floor"], ["#", "wall"]);
+  if (v.rows.some(r => r.tiles.includes("~"))) items.push(["~", "water (no floor)"]);
   if (v.edge) items.push(["|", "fence (tile edge)"]);
   if (v.gates) items.push(["R|G|B", "outfit gate (walkable edge, colour = outfit)"]);
   items.push(["•", "something else on this tile"]);
@@ -620,9 +661,13 @@ function renderState() {
   const prev = src === "a" ? viewAprev : viewA;
   $("statesrc").textContent = src === "a" ? "as the player saw them" : "game right now";
   $("srcbtn").textContent = src === "a" ? "show game now" : "show what the player saw";
-  const box = $("state");
+  renderObjects($("state"), $("fences"), v, prev);
+}
+
+// The objects grouped by kind; `prev` (optional) marks what differs from an earlier view.
+function renderObjects(box, fencesEl, v, prev) {
   box.innerHTML = "";
-  $("fences").textContent = v && v.fences ? "Fences: " + v.fences : "";
+  fencesEl.textContent = v && v.fences ? "Fences: " + v.fences : "";
   if (!v || !v.objs.length) { box.innerHTML = '<div class="empty">No objects.</div>'; return; }
   const before = new Map((prev && prev.objs || []).map(o => [o.label, JSON.stringify([o.x, o.y, o.dz, o.parts])]));
   const groups = new Map();
@@ -954,6 +999,7 @@ setInterval(pollLive, 1000);
     if (MODE === "api") {
       $("newmodel").style.display = "";
       $("neweffort").style.display = "";
+      $("levellbl").style.display = "";
       try {
         const d = await j(CONTROL + "/defaults");
         $("newmodels").innerHTML = d.suggested.map(m => `<option value="${m}">`).join("");
@@ -969,8 +1015,11 @@ setInterval(pollLive, 1000);
       }
       try {
         const r = await post(CONTROL + "/new", { name, model: $("newmodel").value.trim() || undefined,
-          effort: $("neweffort").value });
-        r.error ? alert(r.error) : go(r.active);
+          effort: $("neweffort").value, scope: $("newlevel").checked ? "level" : "game" });
+        if (r.error) return alert(r.error);
+        if (r.missing_rules && r.missing_rules.length)
+          alert("Started. No description yet for: " + r.missing_rules.join(", ") + " (add them in game/level_rules.py)");
+        go(r.active);
       } catch (e) { alert("API player control server is not running."); }
     };
   }
@@ -1184,6 +1233,40 @@ setInterval(pollLive, 1000);
 })();
 </script>
 <script>
+// ---------- debug window: the game's current level, no player ----------
+(() => {
+  const $ = id => document.getElementById(id);
+  // Debug window: the game's current level, the rules written for it and the prompt, with no player running.
+  let dbgTimer = null;
+  const dbgLoad = async () => {
+    try {
+      const d = await (await fetch("/debug")).json();
+      if (d.error) { $("dbglevel").textContent = "no level"; $("dbgscreen").textContent = d.error;
+        $("dbg-map").innerHTML = ""; $("dbg-state").innerHTML = ""; return; }
+      $("dbglevel").textContent = d.level + (d.open_world ? " (open world)" : "");
+      $("dbgscreen").textContent = d.screen;
+      const v = parseView(d.screen), box = mapBox(v);
+      $("dbg-where").textContent = v ? v.where : "";
+      $("dbg-heroes").textContent = v && v.heroes ? "Heroes: " + v.heroes : "";
+      renderMap($("dbg-map"), v, null, box);
+      renderLegend(v, $("dbg-legend"));
+      renderObjects($("dbg-state"), $("dbg-fences"), v, null);
+      if (box) {   // as large as fits the column
+        const room = $("dbg-ui").clientWidth - 24 - 28 - 2 * (box.x1 - box.x0 + 3);
+        $("dbg-ui").style.setProperty("--cs", Math.max(11, Math.min(26, Math.floor(room / (box.x1 - box.x0 + 1)))) + "px");
+      }
+      $("dbgrules").textContent = d.rules || "(nothing described)";
+      $("dbgrulestitle").textContent = "Rules written for this level" + (d.missing.length ? " · missing: " + d.missing.join(", ") : "");
+      $("dbgprompt").textContent = d.prompt;
+    } catch (e) { $("dbgscreen").textContent = "viewer server not reachable: " + e; }
+  };
+  const dbgTick = () => { clearInterval(dbgTimer); dbgTimer = $("dbgauto").checked ? setInterval(dbgLoad, 2000) : null; };
+  for (const id of ["debugbtn", "debugbtn2"]) if ($(id)) $(id).onclick = () => { $("debugpanel").classList.add("open"); dbgLoad(); dbgTick(); };
+  $("dbgrefresh").onclick = dbgLoad;
+  $("dbgauto").onchange = dbgTick;
+  $("dbgclose").onclick = () => { $("debugpanel").classList.remove("open"); clearInterval(dbgTimer); };
+})();
+
 // Stats: per-level time / tokens / cost for one run (header button) and across runs (run picker).
 (() => {
   if (!MODE) return;

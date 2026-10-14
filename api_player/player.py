@@ -15,6 +15,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))  # so `game` and `api_player` import when run as a script
 
+from api_player.actions import act_tool, action_list, disabled_for  # noqa: E402
 from api_player.compact import compact_result, stub_result  # noqa: E402
 from api_player.llm import Usage, load_config, make_client  # noqa: E402
 from api_player.notes import Notes  # noqa: E402
@@ -28,14 +29,7 @@ SAVE_BEFORE_CUT = ("Your earlier messages are about to be dropped from your cont
 EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
 
 TOOLS = [
-    {"type": "function", "function": {
-        "name": "act",
-        "description": "Do game actions in order, e.g. \"north 3, e2, activate, undo\". Items: "
-                       "north/south/east/west (n/s/e/w), undo, restart, activate, take_or_drop, "
-                       "switch_character, select_1..select_9, each with an optional repeat count. "
-                       "Stops at the first step that does not go as asked; shows the view at the end.",
-        "parameters": {"type": "object", "properties": {"commands": {"type": "string"}},
-                       "required": ["commands"]}}},
+    act_tool(),
     {"type": "function", "function": {
         "name": "look", "description": "Show the current view without acting.",
         "parameters": {"type": "object", "properties": {}}}},
@@ -60,10 +54,14 @@ TOOLS = [
 
 
 class Run:
-    def __init__(self, name, cfg, create=False):
+    def __init__(self, name, cfg, create=False, scope="game"):
         self.name = runs.slug(name)
         self.dir = runs.run_dir(MODE, name)
         self.cfg = cfg
+        self.scope = scope        # "game" = the whole game; "level" = solve the level the game is in, then stop
+        self.level = ""           # scope "level": the level being solved
+        self.rules = ""           # scope "level": how its objects work (level_rules.md), part of the prompt
+        self.disabled = []        # scope "level": actions taken away (see prepare_level)
         self.lim = cfg["limits"]
         self.usage = Usage()
         self.messages = []
@@ -97,6 +95,13 @@ class Run:
         meta = runs.read_meta(MODE, self.name)
         self.turns = meta.get("turns", 0)
         self.effort = meta.get("effort", "")
+        self.scope, self.level = meta.get("scope", "game"), meta.get("level", "")
+        self.disabled = meta.get("disabled", [])
+        try:
+            with open(self._path("level_rules.md"), encoding="utf-8") as f:
+                self.rules = f.read()
+        except FileNotFoundError:
+            pass
         try:
             with open(self._path("journal.md"), encoding="utf-8") as f:
                 self.journal = f.read()
@@ -117,7 +122,7 @@ class Run:
         self.notes.save()
         u = self.usage
         runs.write_meta(MODE, self.name, model=self.cfg["model"], effort=self.effort, turns=self.turns,
-                        status=self.status,
+                        status=self.status, scope=self.scope, level=self.level, disabled=self.disabled,
                         usage={"prompt": u.prompt, "cached": u.cached, "completion": u.completion,
                                "cost": u.cost, "calls": u.calls})
 
@@ -131,11 +136,36 @@ class Run:
         with open(self._path("transcript.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps(line) + "\n")
 
+    def prepare_level(self):
+        """Single-level mode: read the level the game is in and write the prompt part that explains its objects.
+        Returns the kinds that have no entry yet in game/level_rules.py. Raises if the game is not in a puzzle level."""
+        from game.level_rules import rules_text
+        game = self.session().game
+        state = game.snapshot()
+        if state["open_world"] or state["level"].startswith("menu_"):
+            raise RuntimeError(f"the game is in '{state['level']}', not in a puzzle level")
+        self.level = state["level"]
+        self.disabled = disabled_for(state["objects"])
+        self.session().disabled = set(self.disabled)
+        self.rules, missing = rules_text(state)
+        with open(self._path("level_rules.md"), "w", encoding="utf-8") as f:
+            f.write(self.rules)
+        self.save()
+        return missing
+
+    def check_level_left(self, result):
+        """Single-level mode: the run is over once the game is no longer in the level."""
+        lv = self.session()._level()
+        if self.scope == "level" and lv and lv != self.level and not lv.startswith("menu_"):
+            self.status = "solved" if "LEVEL SOLVED" in result else "stopped: left the level"
+            self.stop_flag.set()
+
     # ---- tools ----
     def session(self):
         if self._session is None:
             from game.session import Session
-            self._session = Session(os.path.join(self.dir, "state"))
+            self._session = Session(os.path.join(self.dir, "state"), zero_origin=self.scope == "level",
+                                    disabled=self.disabled)
         return self._session
 
     def call_tool(self, name, args):
@@ -161,6 +191,11 @@ class Run:
                   "result": result})
         if name in ("act", "look"):
             self.update_journal(result)
+            if self.scope == "level" and isinstance(result, str):
+                try:
+                    self.check_level_left(result)
+                except Exception:
+                    pass
         return result
 
     def nudges(self, result):
@@ -230,6 +265,12 @@ class Run:
         return result[:idx].rstrip() + ("\n" + rows if rows else "") + "\n" + result[idx:]
 
     # ---- context ----
+    def tools(self):
+        if self.scope != "level":
+            return TOOLS
+        return [act_tool(self.disabled) if t["function"]["name"] == "act" else t
+                for t in TOOLS if t["function"]["name"] != "world_map"]
+
     def build_messages(self):
         system = self.system_prompt() + "\n\n# Your notes\n" + self.notes.render()
         if self.journal:
@@ -237,10 +278,11 @@ class Run:
                        + self.journal)
         return [{"role": "system", "content": system}] + self.messages
 
-    @staticmethod
-    def system_prompt():
-        with open(os.path.join(HERE, "prompt.md"), encoding="utf-8") as f:
-            return f.read()
+    def system_prompt(self):
+        with open(os.path.join(HERE, "level_prompt.md" if self.scope == "level" else "prompt.md"),
+                  encoding="utf-8") as f:
+            return (f.read().replace("{rules}", self.rules or "(nothing described)")
+                    .replace("{actions}", action_list(self.disabled)))
 
     def add(self, msg, **extra):
         self.messages.append(msg)
@@ -336,7 +378,8 @@ class Run:
         # The run's own effort (set in the viewer) wins over the config.toml default.
         reasoning = {"effort": self.effort} if self.effort in EFFORTS else self.cfg.get("reasoning")
         resp = client.chat.completions.create(
-            model=self.cfg["model"], messages=self.build_messages(), tools=TOOLS,
+            model=self.cfg["model"], messages=self.build_messages(),
+            tools=self.tools(),
             temperature=self.cfg.get("temperature", 0.3),
             max_tokens=self.cfg.get("max_output_tokens", 4000),
             extra_body={"usage": {"include": True}, **({"reasoning": reasoning} if reasoning else {})})

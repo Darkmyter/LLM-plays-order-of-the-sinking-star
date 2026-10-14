@@ -47,14 +47,15 @@ def yaw_name(yaw):
 
 
 class Session:
-    def __init__(self, state_dir=None):
+    def __init__(self, state_dir=None, zero_origin=False, disabled=()):
         """state_dir holds what persists for one playthrough: which signs / recordings /
         checkpoints were discovered (discovered.json) and object labels per level (labels.json)
         so 'Rock 3' stays Rock 3 when you come back."""
         state_dir = state_dir or SCRATCH_STATE
         self.discovered_path = os.path.join(state_dir, "discovered.json")
         self.labels_path = os.path.join(state_dir, "labels.json")
-        self.game = Game()
+        self.game = Game(zero_origin=zero_origin)
+        self.disabled = set(disabled)   # actions this player may not use: names, or "select" for select_1..9
         self.hwnd = keys.find_window(self.game.p.pid)
         self.last_level = None
         self._labels_level = None
@@ -463,6 +464,7 @@ class Session:
             return f"a fence on the {direction} edge of your tile"
         lab = numbered or numbering(state["objects"])
         in_water = sunk_rocks(state, z)
+        water = state.get("water", set())
         floor_tiles = {(round(o["pos"][0]), round(o["pos"][1])) for o in in_water}
         there = [o for o in state["objects"] if o["kind"] != "Fence" and not o.get("selected") and on_grid(o)
                  and blocks_tile(o) and o not in in_water
@@ -482,7 +484,7 @@ class Session:
                 elif any(zz >= z for zz in col):
                     behind.append("a wall")
                 elif not any(z - 3 <= zz < z for zz in col) and (bx, by) not in floor_tiles:
-                    behind.append("no floor")
+                    behind.append("water" if (bx, by) in water else "no floor")
                 why += " (it did not move; behind it at " + f"({bx},{by}): " + (
                     " and ".join(behind) if behind else "open floor") + ")"
             return why
@@ -490,7 +492,7 @@ class Session:
         if any(zz >= z for zz in column):
             return f"a wall at ({tx},{ty})"
         if not any(z - 3 <= zz < z for zz in column) and (tx, ty) not in floor_tiles:
-            return f"no floor at ({tx},{ty})"
+            return f"{'water' if (tx, ty) in water else 'no floor'} at ({tx},{ty})"
         return None
 
     @staticmethod
@@ -519,6 +521,9 @@ class Session:
             steps = self.parse_sequence(text)
         except ValueError as e:
             return f"error: {e}"
+        for name, _ in steps:
+            if name in self.disabled or (name.startswith("select_") and "select" in self.disabled):
+                return f"error: '{name}' is not available here"
         out, after = [], None
         for i, (name, n) in enumerate(steps):
             lines, after, outcome = self._step(name, n, before=after)
