@@ -19,6 +19,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
 from api_player.notes import Notes  # noqa: E402
+from bench import api as bench_api  # noqa: E402
 from game import runs, stats  # noqa: E402
 
 PORT = 8765
@@ -81,27 +82,112 @@ def current_screen(rdir):
             return f"error: {e} (is the game running and in a level?)"
 
 
-def debug_level():
-    """The game's current level as the single-level player would get it: the view (no player needed, no keys
-    pressed, no labels saved), the rules written for the objects in it, and the full system prompt."""
+def preview(q):
+    """What a player with these templates would be shown and told, for the start options. Reads the game right
+    now (no keys, nothing saved); when the game is not in a puzzle level it uses a level captured earlier
+    (bench/levels). Query: scope=level|game, prompt, rules, rulebook, view, actions (each optional)."""
+    from api_player.actions import action_list, disabled_for
+    from api_player import prompting
+    from api_player.llm import load_config
+    from api_player.presentation import Presentation
+    from game.game_state import floor_rows, render
+    from game.level_rules import rulebook_text
+    one = lambda k: (q.get(k) or [""])[0]
+    scope = "game" if one("scope") == "game" else "level"
+    tpl = prompting.resolve_templates(load_config(), scope, {k: one(k) for k in ("prompt", "rules", "rulebook", "view", "actions") if one(k)})
+    bad = prompting.problems(tpl, scope)
+    if bad:
+        return {"error": bad}
+    state, source = None, ""
     with _game_lock:
         try:
-            from game.game_state import render
-            from game.level_rules import rules_text
-            from api_player.actions import action_list, disabled_for
-            state = get_game(True).snapshot()
+            state = get_game(scope == "level").snapshot()
+            source = f"the game right now ({state['level']})"
+            if scope == "level" and (state["open_world"] or state["level"].startswith("menu_")):
+                state = None
         except Exception as e:
-            _games.pop(True, None)
-            return {"error": f"{e} (is the game running and in a level?)"}
-    rules, missing = rules_text(state)
+            _games.pop(scope == "level", None)
+            source = f"the game is not reachable ({e})"
+    if state is None:
+        from bench import store
+        saved = store.list_levels()
+        if not saved:
+            return {"error": "the game is not in a puzzle level and no level has been captured yet; "
+                             "put the game in a level to see the preview", "templates": tpl}
+        state = store.load_state(store.read_level(saved[0]["name"])["state"])
+        source = f"captured level {saved[0]['name']} (the game is not in a puzzle level)"
+    pres = Presentation.load(tpl["view"], tpl["actions"])
+    shown = render(state, None, pres.render_opts()) + "\n\nStatus: ready for input."
+    screen = pres.finish("look", shown, lambda: floor_rows(state))
+    hero = next((o for o in state["objects"] if o.get("selected")), None)
+    x, y = (round(hero["pos"][0]), round(hero["pos"][1])) if hero else (0, 0)
+    sample = f"> north\n  Hero moved ({x},{y}) -> ({x},{y + 1})   (an example: the real report depends on what happens)\n\n"
+    act = pres.finish("act", sample + shown, lambda: floor_rows(state))
+    rulebook, missing = "", []
+    if scope == "level" and tpl["rulebook"] == "prefilled":
+        rulebook, missing = rulebook_text(state, tpl["rules"])
+    actions = action_list(disabled_for(state["objects"]) if scope == "level" else [])
+    system = prompting.system_text(scope, tpl, actions, rulebook, "(your notes appear here)",
+                                   log_text=pres.log_text(["#1 north: (your actions appear here)"]))
+    return {"scope": scope, "source": source, "level": state["level"], "templates": tpl, "screen": screen, "act": act,
+            "original": render(state),
+            "rulebook": prompting.rulebook_section(tpl["rules"], tpl["rulebook"], rulebook), "missing": missing,
+            "system": system, "tools": ["act", "look", "note", "write_note"] + (
+                ["rulebook_add", "rulebook_write"] if tpl["rulebook"] == "empty" else [])
+            + (["world_map"] if scope == "game" else [])}
+
+
+def debug_level(q=None):
+    """The game's current level as the single-level player would get it: the preview with the templates in the query
+    (default templates otherwise). `screen` is the text the player is sent; `original` is the original view, which
+    the viewer's map UI is drawn from whatever the world view template."""
+    out = preview({"scope": ["level"], **{k: v for k, v in (q or {}).items() if k in ("prompt", "rules", "rulebook", "view", "actions")}})
+    if out.get("error"):
+        return out
+    return {"level": out["level"], "open_world": False, "source": out["source"], "screen": out["screen"],
+            "original": out["original"], "templates": out["templates"], "rules": out["rulebook"],
+            "missing": out["missing"], "prompt": out["system"]}
+
+
+_debug_session = None
+
+
+def debug_act(body):
+    """Do actions in the game from the debug window and return the report exactly as a player with these templates
+    would get it (and the action-log lines, when the actions template keeps a log). This PRESSES KEYS in the game,
+    so it refuses while a player run is active. Body: {commands, view?, actions?}."""
+    global _debug_session
+    import urllib.request
+    from api_player.presentation import Presentation
+    from game.game_state import floor_rows
     try:
-        with open(os.path.join(ROOT, "api_player", "level_prompt.md"), encoding="utf-8") as f:
-            prompt = (f.read().replace("{rules}", rules or "(nothing described)")
-                      .replace("{actions}", action_list(disabled_for(state["objects"]))))
-    except FileNotFoundError:
-        prompt = ""
-    return {"level": state["level"], "open_world": state["open_world"], "screen": render(state),
-            "rules": rules, "missing": missing, "prompt": prompt}
+        with urllib.request.urlopen("http://127.0.0.1:8766/status", timeout=1) as r:
+            st = json.loads(r.read() or b"{}")
+        if st.get("active") and st.get("status") in ("running", "paused"):
+            return {"error": f"run '{st['active']}' is {st['status']}; stop it before acting from here"}
+    except Exception:
+        pass    # no control server: no player run can be active
+    try:
+        pres = Presentation.load(body.get("view") or "default", body.get("actions") or "default")
+    except (FileNotFoundError, ValueError) as e:
+        return {"error": str(e)}
+    commands = str(body.get("commands", "")).strip()
+    if not commands:
+        return {"error": "type an action, e.g. north, east 2, undo"}
+    with _game_lock:
+        try:
+            if _debug_session is None:
+                from game.session import Session
+                _debug_session = Session(os.path.join(ROOT, "runs", "_scratch", "debug"), zero_origin=True)
+            s = _debug_session
+            s.render_opts = pres.render_opts()
+            raw = s.do_sequence(commands)
+            shown = pres.finish("act", raw, lambda: floor_rows(s.game.snapshot()))
+        except Exception as e:
+            _debug_session = None
+            return {"error": f"{e} (is the game running?)"}
+    entries = pres.log_entries(s.last_steps, 1) if pres.logging() else []
+    return {"result": shown, "log": pres.log_text(entries) if entries else "", "templates": pres.name}
 
 
 def read_speech(rdir, limit=300):
@@ -132,7 +218,7 @@ def read_notes(mode, rdir):
     if mode == "api":
         order = {n + ".md": i for i, n in enumerate(("progress", "mechanics", "characters", "world"))}
         files.sort(key=lambda f: (order.get(f["name"], len(order)), f["name"]))
-        for name in (("notes.md",) if not files else ()) + ("journal.md",):
+        for name in (("notes.md",) if not files else ()) + ("rulebook.md", "journal.md"):
             p = os.path.join(rdir, name)
             if os.path.isfile(p):
                 with open(p, encoding="utf-8", errors="replace") as f:
@@ -142,7 +228,7 @@ def read_notes(mode, rdir):
 
 
 def read_context(rdir):
-    """What the API player's next model call would send: system prompt + notes, then history."""
+    """What the API player's next model call would send: the system message, then the history."""
     def text(path):
         try:
             with open(path, encoding="utf-8") as f:
@@ -156,15 +242,19 @@ def read_context(rdir):
     pages = Notes(os.path.join(rdir, "notes"))
     pages.load(legacy_file=os.path.join(rdir, "notes.md"))
     meta = runs.read_meta("api", os.path.basename(rdir)) or {}
-    prompt = text(os.path.join(ROOT, "api_player", "level_prompt.md" if meta.get("scope") == "level" else "prompt.md"))
+    from api_player import prompting
     from api_player.actions import action_list
-    system = (prompt.replace("{rules}", text(os.path.join(rdir, "level_rules.md")) or "(nothing described)")
-              .replace("{actions}", action_list(meta.get("disabled", []))))
-    system += "\n\n# Your notes\n" + pages.render()
-    journal = text(os.path.join(rdir, "journal.md"))
-    if journal:
-        system += ("\n\n# Journal (read-only: the game keeps every sign and recording you have read or heard)\n"
-                   + journal)
+    from api_player.llm import load_config
+    from api_player.presentation import Presentation
+    scope = meta.get("scope", "game")
+    tpl = prompting.for_saved_run(load_config(), scope, meta.get("templates"))
+    try:
+        log_text = Presentation.load(tpl["view"], tpl["actions"]).log_text(json.loads(text(os.path.join(rdir, "action_log.json")) or "[]"))
+        rulebook = text(os.path.join(rdir, "rulebook.md")) or text(os.path.join(rdir, "level_rules.md"))
+        system = prompting.system_text(scope, tpl, action_list(meta.get("disabled", [])), rulebook, pages.render(),
+                                       text(os.path.join(rdir, "journal.md")), log_text)
+    except (ValueError, FileNotFoundError) as e:
+        system = f"(cannot rebuild the system message: {e})"
     return [{"role": "system", "content": system}] + history
 
 
@@ -198,6 +288,14 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/":
             with open(os.path.join(HERE, "page.html"), encoding="utf-8") as f:
                 self.send(f.read(), "text/html; charset=utf-8")
+        elif url.path in bench_api.LOCAL_GET:
+            try:
+                self.send_json(bench_api.get(url.path, q))
+            except (FileNotFoundError, ValueError) as e:
+                self.send_json({"error": str(e)})
+        elif url.path == "/bench":
+            with open(os.path.join(HERE, "bench.html"), encoding="utf-8") as f:
+                self.send(f.read(), "text/html; charset=utf-8")
         elif url.path == "/runs":
             mode = q.get("mode", [""])[0]
             self.send_json(runs.list_runs(mode) if mode in runs.MODES else [])
@@ -211,7 +309,16 @@ class Handler(BaseHTTPRequestHandler):
             except (FileNotFoundError, ValueError):
                 self.send_json({})
         elif url.path == "/debug":
-            self.send_json(debug_level())
+            self.send_json(debug_level(q))
+        elif url.path == "/preview":
+            self.send_json(preview(q))
+        elif url.path == "/templates":
+            from api_player import prompting
+            from api_player.llm import load_config
+            from game import templates
+            cfg = load_config()
+            self.send_json({"templates": templates.describe(),
+                            "defaults": {sc: prompting.resolve_templates(cfg, sc) for sc in templates.SCOPES}})
         elif url.path == "/info":
             self.send_json({"workspace": WORKSPACE})
         elif url.path in ("/log", "/snapshot", "/voice", "/notes", "/messages", "/context", "/stats"):
@@ -245,7 +352,12 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
         except ValueError:
             body = {}
-        if url.path == "/new" and parse_qs(url.query).get("mode") == ["agent"]:
+        if url.path == "/debug/act":
+            self.send_json(debug_act(body))
+        elif url.path in bench_api.LOCAL_POST:
+            with _game_lock:
+                self.send_json(bench_api.post(url.path, body, lambda: False))
+        elif url.path == "/new" and parse_qs(url.query).get("mode") == ["agent"]:
             try:
                 self.send_json({"name": runs.create("agent", body.get("name"))})
             except FileExistsError as e:

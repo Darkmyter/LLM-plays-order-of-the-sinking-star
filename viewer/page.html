@@ -135,7 +135,30 @@ h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing
 .screen { display: none; padding: 32px 24px; max-width: 760px; margin: 0 auto; width: 100%; }
 body.stage-landing #landing, body.stage-picker #picker { display: block; }
 body.stage-landing header, body.stage-landing main, body.stage-picker header, body.stage-picker main { display: none; }
-body.stage-landing, body.stage-picker { display: block; height: auto; overflow: auto; }
+body.stage-landing, body.stage-picker, body.stage-playchoice { display: block; height: auto; overflow: auto; }
+body.stage-playchoice #playchoice { display: block; }
+body.stage-playchoice header, body.stage-playchoice main { display: none; }
+#picker.screen { max-width: 1280px; }
+.startgrid { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(380px, 1.25fr); gap: 28px; align-items: start; }
+@media (max-width: 900px) { .startgrid { grid-template-columns: 1fr; } }
+.startopts h2, .startprev h2 { margin-top: 4px; }
+.startopts h3 { margin: 16px 0 6px; font-size: 13px; }
+.optlist { display: flex; flex-direction: column; gap: 6px; }
+.opt { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px;
+  background: var(--panel); cursor: pointer; }
+.opt input { display: none; }
+.opt:hover { border-color: var(--muted); }
+.opt.on { border-color: var(--accent); background: #f5c54210; }
+.opt span { color: var(--muted); font-size: 12px; }
+.startprev { position: sticky; top: 12px; min-width: 0; }
+.prevtabs { display: flex; gap: 6px; margin: 6px 0; }
+.prevtext { background: #0b0e12; border: 1px solid var(--line); border-radius: 6px; padding: 10px; max-height: 66vh; overflow: auto;
+  font: 12px/1.35 ui-monospace, Consolas, monospace; white-space: pre; margin: 6px 0; }
+.runfilters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 6px 0 4px; }
+.runscroll { max-height: 52vh; overflow: auto; padding-right: 4px; }
+.rrmain { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tags span { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 16px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px;
   color: var(--text); text-decoration: none; display: flex; flex-direction: column; gap: 8px; }
@@ -200,6 +223,11 @@ table.st td.cell { text-align: center; }
   border-radius: 8px; font: 12px/1.35 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
 .dbgbody pre.map { white-space: pre; }
 #dbg-ui { --cs: 20px; }
+.dbgsel { display: inline-flex; gap: 4px; align-items: center; }
+.dbgsel select { font-size: 12px; }
+.dbgact { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 10px 0 6px; }
+.dbgact input { flex: 1; min-width: 140px; }
+.dbgbody pre.dbgresult { flex: 0 0 auto; max-height: 38%; white-space: pre-wrap; }
 #dbg-ui .scroll { flex: 1; min-height: 0; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .chip2 { padding: 2px 9px; border-radius: 99px; border: 1px solid var(--line); font-size: 12px; }
@@ -212,23 +240,58 @@ table.st td.cell { text-align: center; }
   <div class="cards">
     <a class="card" href="/?mode=api"><b>API player</b><span>A model through OpenRouter or a local llama server. Start, pause and resume from here.</span></a>
     <a class="card" href="/?mode=agent"><b>Coding agent</b><span>Claude Code (or similar) with the game tools. Pick a run and paste the prompt it gives you.</span></a>
+    <a class="card" href="/bench"><b>Benchmark</b><span>Compare models, prompts, rules, presentation and action logs on captured levels: run experiments and see the results side by side.</span></a>
+  </div>
+</div>
+<div id="playchoice" class="screen">
+  <a class="pill" href="/">◂ change player</a>
+  <h1>API player</h1>
+  <p>What should it play?</p>
+  <div class="cards">
+    <a class="card" href="/?mode=api&play=level"><b>Level play</b><span>Solve the one puzzle level the game is in now. The run ends when the level is left. The rulebook can be given (read-only) or left empty for the player to write.</span></a>
+    <a class="card" href="/?mode=api&play=game"><b>Game play</b><span>Play the whole game: puzzle levels and the open world. The player writes its own rulebook and notes.</span></a>
   </div>
 </div>
 <div id="picker" class="screen">
-  <a class="pill" href="/">◂ change player</a>
+  <a class="pill" href="/">◂ change player</a> <a class="pill" id="playswitch" href="/?mode=api" style="display:none">◂ level / game play</a>
   <h1 id="pickertitle"></h1>
   <div id="pickerwarn" class="warn"></div>
-  <div id="runlist"></div>
-  <h2>New playthrough</h2>
-  <div class="newrun">
-    <input id="newname" placeholder="name (optional)" size="24">
-    <input id="newmodel" list="newmodels" placeholder="model id" size="32" style="display:none">
-    <datalist id="newmodels"></datalist>
-    <select id="neweffort" class="effort" style="display:none" title="Reasoning effort for the model (how much it thinks before acting)"></select>
-    <label id="levellbl" style="display:none" title="Solve only the level the game is in now. The prompt is written from the objects in it, and the run ends when the level is left."><input type="checkbox" id="newlevel"> single level (the game's current level)</label>
-    <button id="newbtn">Start new run</button>
+  <div class="startgrid">
+    <div class="startopts">
+      <h2>New run</h2>
+      <div class="newrun">
+        <input id="newname" placeholder="name (optional)" size="24">
+        <input id="newmodel" list="newmodels" placeholder="model id" size="32" style="display:none">
+        <datalist id="newmodels"></datalist>
+        <select id="neweffort" class="effort" style="display:none" title="Reasoning effort for the model (how much it thinks before acting)"></select>
+        <button id="newbtn">Start new run</button>
+      </div>
+      <p class="hint" id="newhint"></p>
+      <div id="tplopts" style="display:none">
+        <h3>World view <span class="hint">how the game world is shown in text</span></h3><div class="optlist" id="opt-view"></div>
+        <h3>Action results <span class="hint">what an action returns</span></h3><div class="optlist" id="opt-actions"></div>
+        <h3>Rulebook format <span class="hint">how rules are written down, and the prompt that explains it</span></h3><div class="optlist" id="opt-rules"></div>
+        <div id="opt-rulebook-wrap"><h3>Rulebook <span class="hint">given or written by the player</span></h3><div class="optlist" id="opt-rulebook"></div></div>
+        <h3>General prompt</h3><select id="opt-prompt"></select>
+      </div>
+    </div>
+    <div class="startprev" id="startprev" style="display:none">
+      <h2>How it looks <span class="pill" id="prevsource"></span></h2>
+      <div class="prevtabs">
+        <button data-p="screen" class="active">look()</button><button data-p="act">After an action</button><button data-p="rulebook">Rulebook</button><button data-p="system">System prompt</button>
+      </div>
+      <div class="hint" id="prevtools"></div>
+      <pre id="prevtext" class="prevtext"></pre>
+    </div>
   </div>
-  <p class="hint" id="newhint"></p>
+  <h2 id="runstitle">Previous runs</h2>
+  <div class="runfilters" id="runfilters" style="display:none">
+    <input id="f-text" placeholder="filter by name, model or level" size="26">
+    <select id="f-model"></select><select id="f-status"></select>
+    <select id="f-view"></select><select id="f-actions"></select><select id="f-rules"></select><select id="f-rulebook"></select>
+    <button id="f-clear">Clear</button> <span class="hint" id="f-count"></span>
+  </div>
+  <div id="runlist" class="runscroll"></div>
   <button id="comparebtn">Compare all runs</button> <button id="mapbtn">Progress map</button>
   <button id="debugbtn" title="Show the game's current level and the rules written for it, without any player">Debug: current level</button>
 </div>
@@ -236,6 +299,10 @@ table.st td.cell { text-align: center; }
   <div class="msghead">
     <h2>Debug · current level</h2>
     <span class="pill" id="dbglevel">–</span>
+    <label class="pill dbgsel" title="World view: how the game world is shown in text">view <select id="dbg-view"></select></label>
+    <label class="pill dbgsel" title="Action results: what an action returns">action results <select id="dbg-actions"></select></label>
+    <label class="pill dbgsel" title="Rulebook format: how rules are written, and the prompt that explains it">rulebook <select id="dbg-rules"></select></label>
+    <label class="pill dbgsel" title="Given (read-only, filled in for the objects in the level) or empty (the player writes it)"><select id="dbg-rulebook"></select></label>
     <label class="pill"><input type="checkbox" id="dbgauto" checked> refresh every 2 s</label>
     <button id="dbgrefresh">Refresh</button>
     <span class="spacer"></span>
@@ -254,9 +321,17 @@ table.st td.cell { text-align: center; }
         <div id="dbg-fences" class="fencetext"></div>
       </div>
     </section>
-    <section><h3>Text view (what the player is sent)</h3><pre class="map" id="dbgscreen"></pre></section>
+    <section><h3>Text view (what the player is sent)</h3><pre class="map" id="dbgscreen"></pre>
+      <div class="dbgact" title="This presses keys in the game, like the player would. It is refused while a player run is active.">
+        <input id="dbgcmd" placeholder="try an action: north, e2, activate, undo">
+        <button id="dbgrun">Run in the game</button>
+        <button data-cmd="north">n</button><button data-cmd="east">e</button><button data-cmd="south">s</button><button data-cmd="west">w</button><button data-cmd="undo">undo</button>
+      </div>
+      <h3 id="dbgresulttitle">What the action returns</h3>
+      <pre class="map dbgresult" id="dbgresult">Run an action to see what the player gets back with these templates.</pre>
+    </section>
     <section>
-      <h3 id="dbgrulestitle">Rules written for this level</h3><pre id="dbgrules" style="flex:0 0 32%"></pre>
+      <h3 id="dbgrulestitle">Rulebook section</h3><pre id="dbgrules" style="flex:0 0 32%"></pre>
       <h3 style="margin-top:10px">Full system prompt</h3><pre id="dbgprompt"></pre>
     </section>
   </div>
@@ -349,7 +424,7 @@ table.st td.cell { text-align: center; }
 <script>
 // Which player and run this page shows (?mode=api|agent&run=<name>); every data request carries it.
 const _p = new URLSearchParams(location.search);
-const MODE = _p.get("mode") || "", RUN = _p.get("run") || "";
+const MODE = _p.get("mode") || "", RUN = _p.get("run") || "", PLAY = _p.get("play") || "";   // PLAY: api player, "level" or "game"
 const Q = `mode=${encodeURIComponent(MODE)}&run=${encodeURIComponent(RUN)}`;
 </script>
 <script>
@@ -738,7 +813,7 @@ function redraw() {
 // ---------- timeline ----------
 function viewFor(idx) {
   for (let k = idx; k >= 0; k--) {
-    const v = parseView(events[k].result);
+    const v = parseView(events[k].screen || events[k].result);
     if (v) return { v, k };
   }
   return null;
@@ -785,7 +860,7 @@ function changeLines(e) {
   }
   if (e.tool === "say") return "";
   if (e.tool === "world_map") return (e.result || "").split("\n").filter(l => l.startsWith("  - ")).slice(0, 6).join("\n");
-  const res = e.result || "";
+  const res = e.screen || e.result || "";
   const v = parseView(res);
   if (!v) return res.split("\n").slice(0, 3).join("\n");
   const out = res.split("\n").filter(l => l.startsWith("> ") || l.startsWith("(stopped") ||
@@ -815,7 +890,7 @@ function addEvent(e) {
   if (e.tool === "say") { tl.prepend(el); return; }   // the agent's own words: listed with the actions
   el.onclick = () => { follow = false; $("follow").classList.remove("active"); showStep(+el.dataset.i); };
   tl.prepend(el);
-  const v = parseView(res);
+  const v = parseView(e.screen || res);
   if (v && v.where) $("level").textContent = v.where.replace(/^Puzzle level /, "").split(",")[0].replace(/'/g, "");
 }
 
@@ -965,9 +1040,9 @@ setInterval(pollLive, 1000);
   const $ = id => document.getElementById(id);
   const CONTROL = "http://127.0.0.1:8766";           // api_player/control.py
   const NAMES = { api: "API player", agent: "Coding agent" };
-  const stage = !MODE ? "landing" : !RUN ? "picker" : "viewer";
+  const stage = !MODE ? "landing" : (MODE === "api" && !PLAY && !RUN) ? "playchoice" : !RUN ? "picker" : "viewer";
   document.body.className = "stage-" + stage;
-  if (stage === "landing") return;
+  if (stage === "landing" || stage === "playchoice") return;
 
   const j = (url, opt) => fetch(url, opt).then(r => r.json());
   const post = (url, body) => j(url, { method: "POST", headers: { "Content-Type": "application/json" },
@@ -980,32 +1055,117 @@ setInterval(pollLive, 1000);
     : `${r.actions || 0} actions · ${ago(r.updated)}`;
 
   // ----- run picker -----
+  const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const SCOPE = PLAY === "game" ? "game" : "level";
+  const RULEBOOK_MODES = [
+    { name: "prefilled", description: "Given: the rulebook is filled in for the objects in the level and the player only reads it." },
+    { name: "empty", description: "Empty: the player starts with nothing and writes the rulebook as it learns." }];
+  // What a run used. Runs from before templates existed used what are now the defaults.
+  const OLD_ACTIONS = ["changes_only", "with_log", "changes_only_log"];   // a run from before view and actions were split
+  const tplOf = r => { const t = r.templates || {}, old = t.presentation;
+    return { view: t.view || (old && !OLD_ACTIONS.includes(old) ? old : "default"),
+      actions: t.actions || (OLD_ACTIONS.includes(old) ? old : "default"), rules: !t.rules || t.rules === "default" ? "free" : t.rules,
+      rulebook: t.rulebook || ((r.scope === "level") ? "prefilled" : "empty") }; };
+  const statusOf = r => (r.status || "idle").replace(/^(stopped|error).*/, "$1");
+  const runLine = r => { const u = r.usage || {};
+    return `${r.model || ""}${r.effort ? " · " + r.effort : ""} · ${r.turns || 0} turns · $${(u.cost || 0).toFixed(2)} · ${ago(r.updated)}`; };
+
   async function picker() {
-    $("pickertitle").textContent = NAMES[MODE] + " · playthroughs";
-    $("newhint").textContent = MODE === "api"
-      ? "Tip: start a fresh game save in-game first if you want a clean run. Needs the control server: uv run python -m api_player.control"
+    const api = MODE === "api";
+    $("pickertitle").textContent = api ? `API player · ${SCOPE === "level" ? "Level play" : "Game play"}` : NAMES[MODE] + " · playthroughs";
+    if (api) $("playswitch").style.display = "";
+    $("newhint").textContent = api
+      ? (SCOPE === "level" ? "Put the game in the puzzle level first. The run ends when the level is left." : "Tip: start a fresh game save in-game first if you want a clean run.")
+        + " Needs the control server: uv run python -m api_player.control"
       : "Tip: start a fresh game save in-game first if you want a clean run. You get a prompt to paste into your coding agent.";
-    const runs = await j(`/runs?mode=${MODE}`);
-    $("runlist").innerHTML = runs.length ? "" : '<div class="hint">No runs yet.</div>';
-    for (const r of runs) {
-      const row = document.createElement("div");
-      row.className = "runrow";
-      row.innerHTML = `<b></b><span class="meta"></span><button>Open</button>`;
-      row.querySelector("b").textContent = r.name;
-      row.querySelector(".meta").textContent = runMeta(r);
-      row.onclick = () => go(r.name);
-      $("runlist").appendChild(row);
+    let runs = await j(`/runs?mode=${MODE}`);
+    if (api) runs = runs.filter(r => (r.scope || "game") === SCOPE);
+    runs.forEach(r => r._t = api ? tplOf(r) : {});
+
+    // ----- previous runs: scrollable, filterable -----
+    const F = { text: "", model: "", status: "", view: "", actions: "", rules: "", rulebook: "" };
+    const distinct = f => [...new Set(runs.map(f).filter(Boolean))].sort();
+    const fillFilter = (id, label, values) => { $(id).innerHTML = `<option value="">${label}: all</option>` +
+      values.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join(""); };
+    function drawRuns() {
+      const t = F.text.toLowerCase();
+      const shown = runs.filter(r => (!t || `${r.name} ${r.model || ""} ${r.level || ""}`.toLowerCase().includes(t))
+        && (!F.model || r.model === F.model) && (!F.status || statusOf(r) === F.status)
+        && (!F.view || r._t.view === F.view) && (!F.actions || r._t.actions === F.actions) && (!F.rules || r._t.rules === F.rules)
+        && (!F.rulebook || r._t.rulebook === F.rulebook));
+      $("f-count").textContent = `${shown.length} of ${runs.length}`;
+      $("runlist").innerHTML = shown.length ? "" : `<div class="hint">${runs.length ? "No run matches the filters." : "No runs yet."}</div>`;
+      for (const r of shown) {
+        const row = document.createElement("div");
+        row.className = "runrow";
+        const tags = api ? `<div class="tags"><span>view: ${esc(r._t.view)}</span><span>action results: ${esc(r._t.actions)}</span><span>rulebook: ${esc(r._t.rules)}${SCOPE === "level" ? " · " + (r._t.rulebook === "empty" ? "written by the player" : "given") : ""}</span>${r.level ? `<span>level: ${esc(r.level)}</span>` : ""}</div>` : "";
+        row.innerHTML = `<div class="rrmain"><b></b><span class="meta"></span>${tags}</div><span class="pill st"></span><button>Open</button>`;
+        row.querySelector("b").textContent = r.name;
+        row.querySelector(".meta").textContent = api ? runLine(r) : `${r.actions || 0} actions · ${ago(r.updated)}`;
+        const st = row.querySelector(".st");
+        if (api) { st.textContent = statusOf(r); st.className = "pill st st-" + (statusOf(r) === "solved" ? "run" : statusOf(r) === "error" ? "stop" : ""); } else st.remove();
+        row.onclick = () => go(r.name);
+        $("runlist").appendChild(row);
+      }
     }
-    if (MODE === "api") {
+    if (api) {
+      $("runfilters").style.display = "";
+      fillFilter("f-model", "model", distinct(r => r.model)); fillFilter("f-status", "status", distinct(statusOf));
+      fillFilter("f-view", "view", distinct(r => r._t.view)); fillFilter("f-actions", "action results", distinct(r => r._t.actions));
+      fillFilter("f-rules", "rulebook format", distinct(r => r._t.rules));
+      fillFilter("f-rulebook", "rulebook", SCOPE === "level" ? ["prefilled", "empty"] : []);
+      if (SCOPE !== "level") $("f-rulebook").style.display = "none";
+      $("f-text").oninput = () => { F.text = $("f-text").value; drawRuns(); };
+      for (const k of ["model", "status", "view", "actions", "rules", "rulebook"]) $("f-" + k).onchange = () => { F[k] = $("f-" + k).value; drawRuns(); };
+      $("f-clear").onclick = () => { Object.keys(F).forEach(k => F[k] = ""); $("f-text").value = ""; ["model", "status", "view", "actions", "rules", "rulebook"].forEach(k => $("f-" + k).value = ""); drawRuns(); };
+    }
+    drawRuns();
+
+    // ----- start options and the preview of what they look like -----
+    const chosen = {};
+    if (api) {
       $("newmodel").style.display = "";
       $("neweffort").style.display = "";
-      $("levellbl").style.display = "";
+      $("tplopts").style.display = "";
+      $("startprev").style.display = "";
+      $("opt-rulebook-wrap").style.display = SCOPE === "level" ? "" : "none";
       try {
         const d = await j(CONTROL + "/defaults");
         $("newmodels").innerHTML = d.suggested.map(m => `<option value="${m}">`).join("");
         $("newmodel").value = d.model;
         fillEffort($("neweffort"), d, "");
       } catch (e) { $("pickerwarn").textContent = "API player control server is not running (uv run python -m api_player.control)."; }
+      const info = await j("/templates"), def = info.defaults[SCOPE];
+      Object.assign(chosen, def);
+      let timer = null, tab = "screen", last = null;
+      const showPrev = () => { const el = $("prevtext");
+        if (!last) return;
+        $("prevsource").textContent = last.source || "";
+        $("prevtools").textContent = last.error ? "" : "tools: " + (last.tools || []).join(", ");
+        el.textContent = last.error ? last.error : (last[tab] || "(nothing)");
+        $("startprev").querySelectorAll(".prevtabs button").forEach(b => b.classList.toggle("active", b.dataset.p === tab)); };
+      const loadPrev = () => { clearTimeout(timer); timer = setTimeout(async () => {
+        const q = new URLSearchParams({ scope: SCOPE, prompt: chosen.prompt, rules: chosen.rules, view: chosen.view, actions: chosen.actions, rulebook: chosen.rulebook });
+        try { last = await j("/preview?" + q); } catch (e) { last = { error: "viewer server not reachable: " + e }; }
+        showPrev(); }, 120); };
+      $("startprev").querySelectorAll(".prevtabs button").forEach(b => b.onclick = () => { tab = b.dataset.p; showPrev(); });
+      const group = (id, key, items) => { const el = $(id); el.innerHTML = "";
+        for (const it of items) {
+          const lab = document.createElement("label");
+          lab.className = "opt" + (chosen[key] === it.name ? " on" : "");
+          lab.innerHTML = `<input type="radio" name="${key}"><b>${esc(it.name)}</b><span>${esc(it.description || "")}</span>`;
+          lab.onclick = e => { e.preventDefault(); chosen[key] = it.name; el.querySelectorAll(".opt").forEach(x => x.classList.toggle("on", x === lab)); loadPrev(); };
+          el.appendChild(lab);
+        } };
+      group("opt-view", "view", info.templates.view);
+      group("opt-actions", "actions", info.templates.actions);
+      group("opt-rules", "rules", info.templates.rules);
+      group("opt-rulebook", "rulebook", RULEBOOK_MODES);
+      const prompts = info.templates["prompts/" + SCOPE];
+      $("opt-prompt").innerHTML = prompts.map(p => `<option ${p.name === chosen.prompt ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+      $("opt-prompt").onchange = () => { chosen.prompt = $("opt-prompt").value; loadPrev(); };
+      loadPrev();
+      setInterval(() => { if (document.visibilityState === "visible") loadPrev(); }, 15000);   // follows the game while you wait
     }
     $("newbtn").onclick = async () => {
       const name = $("newname").value.trim();
@@ -1015,10 +1175,10 @@ setInterval(pollLive, 1000);
       }
       try {
         const r = await post(CONTROL + "/new", { name, model: $("newmodel").value.trim() || undefined,
-          effort: $("neweffort").value, scope: $("newlevel").checked ? "level" : "game" });
+          effort: $("neweffort").value, scope: SCOPE, templates: chosen });
         if (r.error) return alert(r.error);
         if (r.missing_rules && r.missing_rules.length)
-          alert("Started. No description yet for: " + r.missing_rules.join(", ") + " (add them in game/level_rules.py)");
+          alert("Started. The given rulebook has no entry yet for: " + r.missing_rules.join(", ") + " (add them in templates/rules/" + chosen.rules + "/prefilled.toml)");
         go(r.active);
       } catch (e) { alert("API player control server is not running."); }
     };
@@ -1122,6 +1282,7 @@ setInterval(pollLive, 1000);
   $("runpill").href = `/?mode=${MODE}`;
   j(`/runs?mode=${MODE}`).then(runs => {
     const meta = runs.find(r => r.name === RUN) || {};
+    if (MODE === "api") $("runpill").href = `/?mode=api&play=${meta.scope === "level" ? "level" : "game"}`;
     if (MODE === "agent") agentControls(meta); else apiControls(meta);
   });
 })();
@@ -1240,12 +1401,12 @@ setInterval(pollLive, 1000);
   let dbgTimer = null;
   const dbgLoad = async () => {
     try {
-      const d = await (await fetch("/debug")).json();
+      const d = await (await fetch("/debug?" + dbgParams())).json();
       if (d.error) { $("dbglevel").textContent = "no level"; $("dbgscreen").textContent = d.error;
         $("dbg-map").innerHTML = ""; $("dbg-state").innerHTML = ""; return; }
       $("dbglevel").textContent = d.level + (d.open_world ? " (open world)" : "");
       $("dbgscreen").textContent = d.screen;
-      const v = parseView(d.screen), box = mapBox(v);
+      const v = parseView(d.original || d.screen), box = mapBox(v);   // the map UI reads the original view
       $("dbg-where").textContent = v ? v.where : "";
       $("dbg-heroes").textContent = v && v.heroes ? "Heroes: " + v.heroes : "";
       renderMap($("dbg-map"), v, null, box);
@@ -1256,12 +1417,42 @@ setInterval(pollLive, 1000);
         $("dbg-ui").style.setProperty("--cs", Math.max(11, Math.min(26, Math.floor(room / (box.x1 - box.x0 + 1)))) + "px");
       }
       $("dbgrules").textContent = d.rules || "(nothing described)";
-      $("dbgrulestitle").textContent = "Rules written for this level" + (d.missing.length ? " · missing: " + d.missing.join(", ") : "");
+      $("dbgrulestitle").textContent = "Rulebook section" + (d.missing.length ? " · no entry for: " + d.missing.join(", ") : "");
       $("dbgprompt").textContent = d.prompt;
     } catch (e) { $("dbgscreen").textContent = "viewer server not reachable: " + e; }
   };
   const dbgTick = () => { clearInterval(dbgTimer); dbgTimer = $("dbgauto").checked ? setInterval(dbgLoad, 2000) : null; };
-  for (const id of ["debugbtn", "debugbtn2"]) if ($(id)) $(id).onclick = () => { $("debugpanel").classList.add("open"); dbgLoad(); dbgTick(); };
+  // Template choices for the debug window; the config defaults are preselected.
+  const DBG = ["view", "actions", "rules", "rulebook"];
+  const dbgParams = () => new URLSearchParams(Object.fromEntries(DBG.map(k => [k, $("dbg-" + k).value]).filter(kv => kv[1]))).toString();
+  const dbgTemplates = async () => {
+    if ($("dbg-view").options.length) return;
+    try {
+      const t = await (await fetch("/templates")).json(), def = t.defaults.level;
+      const opts = (items, key) => items.map(p => `<option value="${p.name}" title="${(p.description || "").replace(/"/g, "&quot;")}"` +
+        `${p.name === def[key] ? " selected" : ""}>${p.label || p.name}</option>`).join("");
+      $("dbg-view").innerHTML = opts(t.templates.view, "view");
+      $("dbg-actions").innerHTML = opts(t.templates.actions, "actions");
+      $("dbg-rules").innerHTML = opts(t.templates.rules, "rules");
+      $("dbg-rulebook").innerHTML = opts([{ name: "prefilled", label: "given", description: "Filled in for the objects in the level; read-only" },
+        { name: "empty", label: "empty", description: "The player writes it" }], "rulebook");
+    } catch (e) { /* older viewer server: default templates */ }
+  };
+  DBG.forEach(k => $("dbg-" + k).onchange = dbgLoad);
+  const dbgAct = async (commands) => {
+    $("dbgresult").textContent = "running " + commands + " in the game…";
+    try {
+      const r = await (await fetch("/debug/act", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commands, view: $("dbg-view").value, actions: $("dbg-actions").value }) })).json();
+      $("dbgresulttitle").textContent = "What the action returns" + (r.templates ? " · " + r.templates : "");
+      $("dbgresult").textContent = r.error ? "error: " + r.error : r.result + (r.log ? "\n\n----- shown at the top of the next turn -----\n" + r.log : "");
+    } catch (e) { $("dbgresult").textContent = "viewer server not reachable: " + e; }
+    dbgLoad();
+  };
+  $("dbgrun").onclick = () => $("dbgcmd").value.trim() && dbgAct($("dbgcmd").value.trim());
+  $("dbgcmd").onkeydown = e => { if (e.key === "Enter") $("dbgrun").click(); };
+  document.querySelectorAll(".dbgact [data-cmd]").forEach(b => b.onclick = () => dbgAct(b.dataset.cmd));
+  for (const id of ["debugbtn", "debugbtn2"]) if ($(id)) $(id).onclick = async () => { $("debugpanel").classList.add("open"); await dbgTemplates(); dbgLoad(); dbgTick(); };
   $("dbgrefresh").onclick = dbgLoad;
   $("dbgauto").onchange = dbgTick;
   $("dbgclose").onclick = () => { $("debugpanel").classList.remove("open"); clearInterval(dbgTimer); };
