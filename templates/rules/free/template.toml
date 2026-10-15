@@ -1,0 +1,4 @@
+name = "free"
+description = "No fixed format: the rulebook is plain text and the player writes it however it likes (what the first version did)."
+layout = "free"          # how a prefilled rulebook is laid out (game/level_rules.py LAYOUTS)
+list_missing = true      # prefilled: also say which kinds in the level have no entry

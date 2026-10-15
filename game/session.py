@@ -8,7 +8,7 @@ import time
 from game import keys
 from game.dialogue import bark_text
 from game.game_state import (Game, blocks_tile, nkey, render, numbering, label, dialogue_lines, on_grid, in_window,
-                        fence_edges, FENCE_STEP, POSITION, OPEN_WORLD_LEVELS, ST_ACTIVE, sunk_rocks)
+                        fence_edges, FENCE_STEP, POSITION, OPEN_WORLD_LEVELS, ST_ACTIVE, sunk_rocks, RENDER_DEFAULTS)
 
 # Camera-relative WASD -> grid directions (verified in heroes1: D=+x/east, S=-y/south).
 MOVES = {"north": "W", "south": "S", "west": "A", "east": "D"}
@@ -47,14 +47,18 @@ def yaw_name(yaw):
 
 
 class Session:
-    def __init__(self, state_dir=None, zero_origin=False, disabled=()):
+    def __init__(self, state_dir=None, zero_origin=False, disabled=(), render_opts=None):
         """state_dir holds what persists for one playthrough: which signs / recordings /
         checkpoints were discovered (discovered.json) and object labels per level (labels.json)
-        so 'Rock 3' stays Rock 3 when you come back."""
+        so 'Rock 3' stays Rock 3 when you come back. render_opts say what the view leaves out
+        (game_state.RENDER_DEFAULTS); the default is the full view."""
         state_dir = state_dir or SCRATCH_STATE
         self.discovered_path = os.path.join(state_dir, "discovered.json")
         self.labels_path = os.path.join(state_dir, "labels.json")
         self.game = Game(zero_origin=zero_origin)
+        self.render_opts = render_opts or {}
+        self.last_steps = []            # the steps of the latest do_sequence: (action, times, report lines, outcome)
+        self.views = None               # (view shown, original view) of the latest report, when they differ
         self.disabled = set(disabled)   # actions this player may not use: names, or "select" for select_1..9
         self.hwnd = keys.find_window(self.game.p.pid)
         self.last_level = None
@@ -165,10 +169,24 @@ class Session:
         found = self.discover(state)
         if found:
             out += ["Discovered:"] + ["  " + l for l in found]
-        out.append(render(state, self._labels(state)))
+        out.append(self._render(state))
         out.append("")
         out.append(self.status_line(state))
         return "\n".join(out).strip()
+
+    def _render(self, state):
+        """The view as this player is shown it. When that is not the original view, the original is kept too
+        (see original_text): the live viewer draws its map from the original."""
+        labels = self._labels(state)
+        view = render(state, labels, self.render_opts)
+        self.views = (view, render(state, labels)) if {**RENDER_DEFAULTS, **self.render_opts} != RENDER_DEFAULTS else None
+        return view
+
+    def original_text(self, text):
+        """The same report with the original view in place of the one shown, or None when there is no difference."""
+        if not self.views or self.views[0] not in text:
+            return None
+        return text.replace(self.views[0], self.views[1], 1)
 
     def status_line(self, state):
         hero = next((o for o in state["objects"] if o.get("selected")), None)
@@ -446,7 +464,7 @@ class Session:
         if self._key(action) is None:
             return f"unknown action {action!r}"
         out, after, _ = self._step(action, times)
-        out += ["", render(after, self._labels(after)), "", self.status_line(after)]
+        out += ["", self._render(after), "", self.status_line(after)]
         return "\n".join(out)
 
     @staticmethod
@@ -514,6 +532,15 @@ class Session:
             raise ValueError("empty sequence")
         return steps
 
+    @staticmethod
+    def steps_taken(times, lines):
+        """How many of the `times` repeats of an action actually happened, from its report lines."""
+        for l in lines:
+            m = re.search(r"you were stopped after (\d+) of \d+ step", l)
+            if m:
+                return int(m.group(1))
+        return times
+
     def do_sequence(self, text, stop_on_surprise=True):
         """Run several actions in order and report each. Stops when the level changes and, by
         default, as soon as a step does not do exactly what was asked."""
@@ -525,8 +552,10 @@ class Session:
             if name in self.disabled or (name.startswith("select_") and "select" in self.disabled):
                 return f"error: '{name}' is not available here"
         out, after = [], None
+        self.last_steps = []
         for i, (name, n) in enumerate(steps):
             lines, after, outcome = self._step(name, n, before=after)
+            self.last_steps.append((name, n, lines, outcome))
             out += lines
             left = len(steps) - 1 - i
             if outcome == "level" and left:
@@ -536,7 +565,7 @@ class Session:
                 out.append(f"(stopped: that step did not go as asked; skipped {left} remaining step(s): "
                            + ", ".join(f"{a}" + (f" {k}" if k > 1 else "") for a, k in steps[i + 1:]) + ")")
                 break
-        out += ["", render(after, self._labels(after)), "", self.status_line(after)]
+        out += ["", self._render(after), "", self.status_line(after)]
         return "\n".join(out)
 
     def describe_changes(self, before, after):

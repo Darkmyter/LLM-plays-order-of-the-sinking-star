@@ -16,7 +16,7 @@ print("hero", hero["pos"], "window", st["window"])
 print(floor_list[:600])
 
 cfg = load_config(); client = make_client(cfg)
-system = open("api_player/prompt.md", encoding="utf-8").read()
+system = open("templates/prompts/game/default.md", encoding="utf-8").read()
 q = ("Situation: you are at (42,-3). You came from the south along x=45. Moving north from x=47, 46, 44 and 42 "
      "was blocked by raised terrain at y=-1. Which x column is the opening through the wall at y=-1 "
      "(the row below the chamber)? Answer with just the x number and one sentence.")

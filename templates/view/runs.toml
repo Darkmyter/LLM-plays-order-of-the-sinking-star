@@ -1,0 +1,14 @@
+# World view: how the game world is shown in text. Keys left out take the defaults in api_player/presentation.py.
+name = "runs"
+description = "Every row written as runs with their x spelled out ('x1-3 ., x4 R'): no counting at all. No separate floor rows (the map already gives exact x)."
+
+# How to read it; it replaces {view_help} in the general prompt.
+help = '''
+- The map lists each row (`y7:`) as runs of equal tiles with their x written out: `x1-3 .` means tiles x=1, 2 and 3 of that row are floor, `x4 R` means the tile at x=4 has a rock. A tile not listed is empty (no floor, no water).
+- The legend under the map says what each symbol is. Only objects at your height are drawn.
+- Fences are not drawn on this map. A fence is not a tile: it sits on the edge between two tiles and blocks the way like a wall. When there are fences, the `Fences:` line lists them per tile (e.g. `(49,1) N` = a fence on the north edge of tile (49,1); letters combine, `(49,2) SW` = fences on both the south and the west edge, not a diagonal).
+'''
+
+[view]
+map = "runs"
+floor_rows = false

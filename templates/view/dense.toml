@@ -1,0 +1,13 @@
+# World view: how the game world is shown in text. Keys left out take the defaults in api_player/presentation.py.
+name = "dense"
+description = "Compact grid: one character per tile, column numbers as two header lines (tens, ones). The classic format, as a baseline for how much counting hurts."
+
+# How to read it; it replaces {view_help} in the general prompt.
+help = '''
+- The map has one character per tile. The two lines above and below it give each column's x: tens on the first line, ones on the second. Each row starts and ends with its y. `_` is an empty tile (no floor, no water). For exact positions use the `Floor tiles by row` list and the object list.
+- The legend under the map says what each symbol is. Only objects at your height are drawn.
+- Fences are not drawn on this map. A fence is not a tile: it sits on the edge between two tiles and blocks the way like a wall. When there are fences, the `Fences:` line lists them per tile (e.g. `(49,1) N` = a fence on the north edge of tile (49,1); letters combine, `(49,2) SW` = fences on both the south and the west edge, not a diagonal).
+'''
+
+[view]
+map = "dense"

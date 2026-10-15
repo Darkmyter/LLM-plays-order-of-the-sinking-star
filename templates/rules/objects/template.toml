@@ -1,0 +1,4 @@
+name = "objects"
+description = "Object-indexed: one block per kind of object, with properties, numbered rules and open questions."
+layout = "objects"
+list_missing = true

@@ -1,0 +1,11 @@
+# Action results: what the player gets back from an action. Keys left out take the defaults in api_player/presentation.py.
+name = "changes_only"
+description = "After an action: only what changed. The map comes from look()."
+
+# How to read it; it replaces {results_help} in the general prompt.
+help = '''
+- After an action you get only what changed, not the map: call `look()` when you want to see the map.
+'''
+
+[result]
+view = "changes_only"

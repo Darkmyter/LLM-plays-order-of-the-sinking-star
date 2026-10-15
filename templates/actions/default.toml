@@ -1,0 +1,6 @@
+# Action results: what the player gets back from an action. Keys left out take the defaults in api_player/presentation.py.
+name = "default"
+description = "After every action: what changed, step by step, then the whole view."
+
+# How to read it; it replaces {results_help} in the general prompt.
+help = ''

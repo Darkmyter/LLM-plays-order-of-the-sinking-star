@@ -1,0 +1,13 @@
+# Action results: what the player gets back from an action. Keys left out take the defaults in api_player/presentation.py.
+name = "changes_only_log"
+description = "After an action: only what changed, plus the numbered action log at the top of every turn; the map comes from look()."
+
+# How to read it; it replaces {results_help} in the general prompt.
+help = '''
+- After an action you get only what changed, not the map: call `look()` when you want to see the map.
+- `Your actions so far`, shown at the top of every turn, lists every step you took and what the game reported, numbered and oldest first.
+'''
+
+[result]
+view = "changes_only"
+log = "steps"

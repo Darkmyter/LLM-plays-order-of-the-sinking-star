@@ -1,0 +1,11 @@
+# Action results: what the player gets back from an action. Keys left out take the defaults in api_player/presentation.py.
+name = "with_log"
+description = "After every action: what changed and the view, plus a numbered log of every step at the top of every turn."
+
+# How to read it; it replaces {results_help} in the general prompt.
+help = '''
+- `Your actions so far`, shown at the top of every turn, lists every step you took and what the game reported, numbered and oldest first.
+'''
+
+[result]
+log = "steps"

@@ -40,6 +40,9 @@ EF_INVISIBLE = 1
 EF_IN_EXISTENCE_GROUP, EF_CURRENTLY_EXISTS = 1 << 25, 1 << 26
 ST_DEAD, ST_FALLING, ST_ACTIVE, ST_ON_EXIT = 1, 2, 4, 16
 
+# Rock.properties bit set on the skipping rocks of the skipping_stones level (the other rocks there have 0).
+ROCK_SKIPPING = 0x2
+
 OPEN_WORLD_LEVELS = {"overworld"}
 # Select keys from data/Gameplay.keymap (SelectWarrior = 1, ...), by the hero's model name.
 SELECT_KEY = {"warrior": 1, "thief": 2, "wizard": 3, "priestess": 4, "bard": 5, "druid": 6,
@@ -389,6 +392,10 @@ class Game:
             flags = self.decode_field(b, *fields["constant_flags"]) or []
             if flags:
                 e["variant"] = flags[0].capitalize()
+        if kind == "Rock" and not self.full:
+            # A skipping rock looks different from a plain one on screen; it glides over water when pushed in.
+            if struct.unpack_from("<H", b, fields["properties"][1])[0] & ROCK_SKIPPING:
+                e["variant"] = "Skipping Stone"
         if kind == "Freezer" and not self.full:
             props["state"] = "thawed" if props.pop("unfrozen", False) else "frozen"
             # The game draws an arrow from a freezer to whatever unlocks it.
@@ -733,6 +740,8 @@ def glyph_of(o):
         return str(o["num"]) if 1 <= o.get("num", 0) <= 9 else "h"
     if o.get("variant") == "Dragon":
         return "X"
+    if o.get("variant") == "Skipping Stone":
+        return "r"
     return GLYPH.get(o["kind"], OTHER_GLYPH)
 
 
@@ -855,7 +864,155 @@ def use_of(o):
     return USE_BLOCK if blocks_tile(o) else USE_STAND
 
 
-def render(state, numbered=None):
+# ---------- map styles ----------
+# How the map part of the view is written. "grid" is the original (2 characters per tile, room for fences on the
+# tile edges, column numbers written vertically). The others never make the reader count characters to find a column:
+#   rows   one symbol per tile, separated by spaces, each row starting with its y (the x range is in the header)
+#   runs   each row as runs of equal tiles with their x written out, e.g. "x1-3 ., x4 R"
+#   dense  one character per tile, no separators, column numbers as two header lines (tens, ones)
+#   none   no map at all: the floor list, fences, objects (and lines from you) carry every position
+MAP_STYLES = ("grid", "rows", "runs", "dense", "none")
+BLANK = "_"   # an empty tile (no floor, no water) where a space would be invisible
+
+
+def _head_grid(x0, y0, x1, y1):
+    # The first line never changes, so api_player/compact.py drops it (the prompt explains it); the other styles
+    # start their header differently because it carries the x and y range.
+    return ["Map (top-down; north=up, east=right).",
+            "Coordinates: the row number (y) is at both ends of each row; the column number (x) "
+            "is written top-to-bottom above and below each column."]
+
+
+def _head_rows(x0, y0, x1, y1):
+    return [f"Map of x {x0}..{x1} (left to right) and y {y1}..{y0} (top to bottom); north=up, east=right.",
+            "One symbol per tile, separated by spaces. Each row starts with its y; the first symbol of every row is "
+            f"x={x0}."]
+
+
+def _head_runs(x0, y0, x1, y1):
+    return [f"Map of x {x0}..{x1} and y {y1}..{y0}; north=up, east=right.",
+            "Each row lists its tiles as runs: 'x1-3 .' means tiles x=1, 2 and 3 of that row are '.'."]
+
+
+def _head_dense(x0, y0, x1, y1):
+    return [f"Map of x {x0}..{x1} and y {y1}..{y0}; north=up, east=right.",
+            "One character per tile. The two lines above the map give each column's x: tens on the first line, "
+            "ones on the second (a negative x has '-' on the first line). Each row starts and ends with its y."]
+
+
+def _head_none(x0, y0, x1, y1):
+    return [f"No map is drawn. The area in view is x {x0}..{x1}, y {y0}..{y1} (north=up=+y, east=right=+x); the "
+            "floor list, fences and objects below give every position."]
+
+
+def _row_label(y, y0, y1):
+    """'y9: ' padded after the colon, so the label never has a space inside it."""
+    width = max(len(str(y0)), len(str(y1)))
+    return f"y{y}:".ljust(width + 2)
+
+
+def _rows_rows(tile, x0, y0, x1, y1):
+    return [f"{_row_label(y, y0, y1)} " + " ".join(tile(x, y) if tile(x, y) != " " else BLANK for x in range(x0, x1 + 1))
+            for y in range(y1, y0 - 1, -1)]
+
+
+def _rows_runs(tile, x0, y0, x1, y1):
+    out = []
+    for y in range(y1, y0 - 1, -1):
+        runs, x = [], x0
+        while x <= x1:
+            g, start = tile(x, y), x
+            while x + 1 <= x1 and tile(x + 1, y) == g:
+                x += 1
+            if g != " ":
+                runs.append((f"x{start}" if start == x else f"x{start}-{x}") + f" {g}")
+            x += 1
+        out.append(f"{_row_label(y, y0, y1)} " + (", ".join(runs) if runs else "(nothing)"))
+    return out
+
+
+def _rows_dense(tile, x0, y0, x1, y1):
+    xs = range(x0, x1 + 1)
+    width = max(len(str(y0)), len(str(y1)))
+    pad = " " * (width + 2)
+    tens = "".join(("-" if x < 0 else str(abs(x) // 10 % 10)) for x in xs)
+    ones = "".join(str(abs(x) % 10) for x in xs)
+    rows = [f"{str(y).rjust(width)}  " + "".join(tile(x, y) if tile(x, y) != " " else BLANK for x in xs) + f"  {y}"
+            for y in range(y1, y0 - 1, -1)]
+    return [pad + tens, pad + ones] + rows + [pad + tens, pad + ones]
+
+
+def _rows_none(tile, x0, y0, x1, y1):
+    return []
+
+
+MAP_HEAD = {"grid": _head_grid, "rows": _head_rows, "runs": _head_runs, "dense": _head_dense, "none": _head_none}
+MAP_ROWS = {"rows": _rows_rows, "runs": _rows_runs, "dense": _rows_dense, "none": _rows_none}
+
+
+def rays_text(state, numbered=None):
+    """What lies in a straight line north, east, south and west of the selected hero, tile by tile, up to the first
+    thing that would stop a step (a fence, a wall, a blocking object, water or no floor). Facts as on the map: it
+    says what is there, not what would happen if you pushed it."""
+    hero = next((o for o in state["objects"] if o.get("selected")), None)
+    if not hero:
+        return ""
+    lab = numbered or numbering(state["objects"])
+    x, y, z = (round(v) for v in hero["pos"])
+    fences = [o for o in state["objects"] if o["kind"] == "Fence" and on_grid(o)]
+    horiz, vert, _ = fence_edges(fences, z)
+    water = state.get("water", set())
+    sunk = {(round(o["pos"][0]), round(o["pos"][1])) for o in sunk_rocks(state, z)}
+    columns = {}
+    for cx, cy, cz in state["solid"]:
+        columns.setdefault((cx, cy), []).append(cz)
+    window = state.get("window")
+    things = {}
+    for o in state["objects"]:
+        if o is hero or o["kind"] == "Fence" or not on_grid(o) or abs(round(o["pos"][2]) - z) > 1:
+            continue
+        things.setdefault((round(o["pos"][0]), round(o["pos"][1])), []).append(o)
+    out = []
+    for d in ("north", "east", "south", "west"):
+        dx, dy = FENCE_STEP[d]
+        px, py, floor, passed, stop = x, y, 0, [], ""
+        for _ in range(60):
+            tx, ty = px + dx, py + dy
+            if window and not in_window((tx, ty), window):
+                stop = "the edge of the view"
+                break
+            if (dy and (px, min(py, ty)) in horiz) or (dx and (min(px, tx), py) in vert):
+                stop = f"a fence on the {d} edge of ({px},{py})"
+                break
+            col = columns.get((tx, ty), [])
+            here = [o for o in things.get((tx, ty), []) if (tx, ty) not in sunk or o["kind"] != "Rock"]
+            blocking = [o for o in here if blocks_tile(o)]
+            if blocking:
+                stop = " and ".join(label(o, lab) for o in blocking) + f" at ({tx},{ty})"
+                break
+            if any(cz >= z for cz in col):
+                stop = f"a wall at ({tx},{ty})"
+                break
+            if not any(z - 3 <= cz < z for cz in col) and (tx, ty) not in sunk:
+                stop = f"{'water' if (tx, ty) in water else 'no floor'} at ({tx},{ty})"
+                break
+            floor += 1
+            passed += [f"{label(o, lab)} at ({tx},{ty})" for o in here if o["kind"] != "Guy"]
+            px, py = tx, ty
+        reach = f"{floor} floor tile{'s' if floor != 1 else ''} to ({px},{py})" if floor else "no floor tile"
+        out.append(f"  {d}: {reach}" + (f" (on the way: {', '.join(passed)})" if passed else "") + f", then {stop}")
+    return f"Straight lines from you at ({x},{y}):\n" + "\n".join(out)
+
+
+# What render() can leave out (templates/view/*.toml, [view]); the defaults are the full view.
+RENDER_DEFAULTS = {"legend": True, "fence_list": True, "object_list": True, "map": "grid", "rays": False}
+
+
+def render(state, numbered=None, opts=None):
+    """The text view of a snapshot. opts (see RENDER_DEFAULTS): legend = the explanation lines under the
+    symbols line, fence_list = the 'Fences:' line, object_list = the 'Objects at your height' list,
+    map = how the map is written (MAP_STYLES), rays = add what lies straight north/east/south/west of you."""
+    opts = {**RENDER_DEFAULTS, **(opts or {})}
     solid = state["solid"]
     fences = [o for o in state["objects"] if o["kind"] == "Fence" and on_grid(o)]
     objs = [o for o in state["objects"] if on_grid(o) and o["kind"] not in ("Fence", "Wardrobe")]
@@ -943,53 +1100,71 @@ def render(state, numbered=None):
         return ("     " + "".join(" " + ("-" if (x, y_low) in horiz else gate_h.get((x, y_low), " "))
                                   for x in xs_all)).rstrip()
 
+    style = opts["map"]
+    if style not in MAP_STYLES:
+        raise ValueError(f"unknown map style {style!r}; one of {MAP_STYLES}")
+    inline = style == "grid"            # only the grid draws fences and outfit gates on the tile edges
+    blank = {"grid": " ", "runs": None, "none": None}.get(style, BLANK)   # how an empty tile is written (None: not listed)
     lines = [where]
     if len(heroes) > 1:
         lines.append("Heroes: " + "   ".join(
             f"{glyph_of(h)}=" + (f"Hero {h['num']}" if h.get("num") else "Hero")
             + (f" ({hero_name(h)})" if hero_name(h) else "")
             + (" <- you" if h.get("selected") else "") for h in heroes))
-    lines += [symbols,
-              "Map (top-down; north=up, east=right).",
-              "Coordinates: the row number (y) is at both ends of each row; the column number (x) "
-              "is written top-to-bottom above and below each column."]
-    lines += ["  . floor at your level", "  # wall: blocks you"]
-    if horiz or vert:
-        lines.append("  | - fence on a tile edge: separates the two tiles it lies between and blocks you")
-    shown_water = any(tile(x, y) == WATER for y in range(y0, y1 + 1) for x in xs_all)
-    if shown_water:
-        lines.append(f"  {WATER} water: no floor, you cannot stand there")
-    lines.append("  (space) " + ("nothing: no floor and no water" if water else "a drop, water or nothing"))
-    shown = {}
-    for o in map_objs:
-        if o["kind"] == "Guy":
-            name = "you" if o.get("selected") else (f"Hero {o['num']}" if o.get("num") else "other hero")
-        else:
-            name = name_of(o)
-        shown[(glyph_of(o), name)] = use_of(o)
-    for (g, name), use in sorted(shown.items(), key=lambda kv: (kv[0][0] != "@", kv[0])):
-        lines.append(f"  {g} {name}" + (f": {use}" if use else ""))
+    if style != "none":
+        lines.append(symbols)
+    lines += MAP_HEAD[style](x0, y0, x1, y1)
+    legend_from = len(lines)
+    if style != "none":
+        lines += ["  . floor at your level", "  # wall: blocks you"]
+        if (horiz or vert) and inline:
+            lines.append("  | - fence on a tile edge: separates the two tiles it lies between and blocks you")
+        shown_water = any(tile(x, y) == WATER for y in range(y0, y1 + 1) for x in xs_all)
+        if shown_water:
+            lines.append(f"  {WATER} water: no floor, you cannot stand there")
+        empty = "nothing: no floor and no water" if water else "a drop, water or nothing"
+        lines.append(f"  (space) {empty}" if blank == " " else f"  {blank} {empty}" if blank
+                     else f"  (a tile not listed) {empty}")
+        shown = {}
+        for o in map_objs:
+            if o["kind"] == "Guy":
+                name = "you" if o.get("selected") else (f"Hero {o['num']}" if o.get("num") else "other hero")
+            else:
+                name = name_of(o)
+            shown[(glyph_of(o), name)] = use_of(o)
+        for (g, name), use in sorted(shown.items(), key=lambda kv: (kv[0][0] != "@", kv[0])):
+            lines.append(f"  {g} {name}" + (f": {use}" if use else ""))
     if gate_h or gate_v:
         lines.append("Outfit gates are on tile edges too, drawn with a colour letter instead of '-' / '|' "
                      "(R=red, G=green, B=blue, ~=other). You can walk through them; "
-                     "the 'Outfit gates:' line under the map says what each one is.")
+                     "the 'Outfit gates:' line under the map says what each one is." if inline else
+                     "Outfit gates are on tile edges and are not drawn on this map; you can walk through them. "
+                     "The 'Outfit gates:' line says where each one is.")
     if horiz or vert:
         lines.append("Fences are thin walls ON TILE EDGES: '|' between two tiles left/right, "
                      "'-' between two tiles above/below. A fence blocks the way like a wall along that edge. "
-                     "The 'Fences:' line under the map lists them per tile.")
-    lines += header
-    for y in range(y1, y0 - 1, -1):
+                     "The 'Fences:' line under the map lists them per tile." if inline else
+                     "Fences are thin walls on tile edges: a fence blocks the way like a wall along that edge. "
+                     "They are not drawn on this map; the 'Fences:' line lists them per tile.")
+    if not opts["legend"]:
+        del lines[legend_from:]
+    if style == "grid":
+        lines += header
+        for y in range(y1, y0 - 1, -1):
+            if edges:
+                lines.append(fence_row(y))
+            row = ""
+            for x in xs_all:
+                row += ("|" if (x - 1, y) in vert else gate_v.get((x - 1, y), " ")) + tile(x, y)
+            row += "|" if (x1, y) in vert else gate_v.get((x1, y), " ")
+            lines.append(f"{y:4} {row} {y}")
         if edges:
-            lines.append(fence_row(y))
-        row = ""
-        for x in xs_all:
-            row += ("|" if (x - 1, y) in vert else gate_v.get((x - 1, y), " ")) + tile(x, y)
-        row += "|" if (x1, y) in vert else gate_v.get((x1, y), " ")
-        lines.append(f"{y:4} {row} {y}")
-    if edges:
-        lines.append(fence_row(y0 - 1))
-    lines += header
-    if horiz or vert:
+            lines.append(fence_row(y0 - 1))
+        lines += header
+    else:
+        lines += MAP_ROWS[style](tile, x0, y0, x1, y1)
+    # A map that cannot draw fences must list them, or they would be invisible.
+    if (horiz or vert) and (opts["fence_list"] or not inline):
         lines.append("")
         lines.append("Fences: " + fence_text(horiz, vert, (x0, y0, x1, y1))
                      + "   (N/E/S/W = which edge of that tile has a fence)")
@@ -999,6 +1174,8 @@ def render(state, numbered=None):
             f"{marks[w['id']]} = on the {w['facing']} edge of ({round(w['pos'][0])},{round(w['pos'][1])}), "
             f"{w.get('props', {}).get('outfit', 'outfit')}"
             for w in sorted(wardrobes, key=lambda w: (-w['pos'][1], w['pos'][0]))))
+    if not opts["object_list"]:
+        return "\n".join(lines + (["", rays_text(state, numbered)] if opts["rays"] else []))
     lines.append("")
     lines.append("Objects at your height (x, y, height relative to you):")
     held_by = {}
@@ -1088,6 +1265,8 @@ def render(state, numbered=None):
         lines.append(f"  {'.' if o in sunk else glyph_of(o)} {label(o, numbered)} at {pos} " + ", ".join(e for e in extra if e))
     if elsewhere:
         lines.append(f"({elsewhere} more object{'s' if elsewhere > 1 else ''} in view at other heights, not shown.)")
+    if opts["rays"]:
+        lines += ["", rays_text(state, numbered)]
     return "\n".join(lines)
 
 

@@ -1,0 +1,14 @@
+# World view: how the game world is shown in text. Keys left out take the defaults in api_player/presentation.py.
+name = "no_map"
+description = "No map at all: floor rows, fences, the object list and straight lines from you carry every position."
+
+# How to read it; it replaces {view_help} in the general prompt.
+help = '''
+- No map is drawn. Positions come from the lists: `Floor tiles by row` (the tiles you can stand on), `Fences:`, the object list and `Straight lines from you`. A tile not in the floor list is a wall, water, a drop or blocked by an object.
+- Fences are not drawn on this map. A fence is not a tile: it sits on the edge between two tiles and blocks the way like a wall. When there are fences, the `Fences:` line lists them per tile (e.g. `(49,1) N` = a fence on the north edge of tile (49,1); letters combine, `(49,2) SW` = fences on both the south and the west edge, not a diagonal).
+- `Straight lines from you` says what lies straight north, east, south and west of you, tile by tile, up to the first thing that would stop a step (a fence, a wall, an object, water or no floor). It says what is there, not what would happen if you pushed something.
+'''
+
+[view]
+map = "none"
+rays = true

@@ -16,10 +16,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))  # so `game` and `api_player` import when run as a script
 
 from api_player.actions import act_tool, action_list, disabled_for  # noqa: E402
-from api_player.compact import compact_result, stub_result  # noqa: E402
+from api_player.compact import stub_result  # noqa: E402
 from api_player.llm import Usage, load_config, make_client  # noqa: E402
 from api_player.notes import Notes  # noqa: E402
-from game import runs  # noqa: E402
+from api_player.presentation import Presentation  # noqa: E402
+from api_player import prompting  # noqa: E402
+from game import runs, templates  # noqa: E402
 
 MODE = "api"
 
@@ -27,6 +29,8 @@ SAVE_BEFORE_CUT = ("Your earlier messages are about to be dropped from your cont
                    "are all you will keep. Before that, decide what from them you want to keep and save it with "
                    "note() or write_note(). Saving nothing is fine if nothing is worth keeping. Then carry on.")
 EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
+
+
 
 TOOLS = [
     act_tool(),
@@ -51,18 +55,34 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {
             "page": {"type": "string"}, "text": {"type": "string"}}, "required": ["page", "text"]}}},
 ]
+# Only in rulebook mode "empty": the player writes the rulebook itself.
+RULEBOOK_TOOLS = [
+    {"type": "function", "function": {
+        "name": "rulebook_add",
+        "description": "Add lines to the end of your rulebook (see the Rulebook section).",
+        "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "rulebook_write",
+        "description": "Replace your whole rulebook, e.g. to tidy it, merge lines, add a rule inside a block or drop "
+                       "guesses that turned out wrong. Empty text clears it.",
+        "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}},
+]
 
 
 class Run:
-    def __init__(self, name, cfg, create=False, scope="game"):
+    def __init__(self, name, cfg, create=False, scope="game", template_names=None):
         self.name = runs.slug(name)
         self.dir = runs.run_dir(MODE, name)
         self.cfg = cfg
         self.scope = scope        # "game" = the whole game; "level" = solve the level the game is in, then stop
         self.level = ""           # scope "level": the level being solved
-        self.rules = ""           # scope "level": how its objects work (level_rules.md), part of the prompt
+        self.rulebook = ""        # the rulebook text (rulebook.md): given when prefilled, the player's own when empty
         self.disabled = []        # scope "level": actions taken away (see prepare_level)
         self.lim = cfg["limits"]
+        # Which template variant this run uses (see game/templates.py); recorded in meta.json.
+        self.templates = prompting.resolve_templates(cfg, scope, template_names)
+        self.pres = Presentation.load(self.templates["view"], self.templates["actions"])
+        self.action_log = []      # one line per step the player took, kept by the harness (actions template: result.log)
         self.usage = Usage()
         self.messages = []
         self.turns = 0
@@ -97,11 +117,20 @@ class Run:
         self.effort = meta.get("effort", "")
         self.scope, self.level = meta.get("scope", "game"), meta.get("level", "")
         self.disabled = meta.get("disabled", [])
+        self.templates = prompting.for_saved_run(self.cfg, self.scope, meta.get("templates"))
+        self.pres = Presentation.load(self.templates["view"], self.templates["actions"])
         try:
-            with open(self._path("level_rules.md"), encoding="utf-8") as f:
-                self.rules = f.read()
-        except FileNotFoundError:
-            pass
+            with open(self._path("action_log.json"), encoding="utf-8") as f:
+                self.action_log = json.load(f)
+        except (FileNotFoundError, ValueError):
+            self.action_log = []
+        for name in ("rulebook.md", "level_rules.md"):    # level_rules.md: runs from before rulebook modes
+            try:
+                with open(self._path(name), encoding="utf-8") as f:
+                    self.rulebook = f.read()
+                break
+            except FileNotFoundError:
+                continue
         try:
             with open(self._path("journal.md"), encoding="utf-8") as f:
                 self.journal = f.read()
@@ -119,10 +148,14 @@ class Run:
     def save(self):
         with open(self._path("history.json"), "w", encoding="utf-8") as f:
             json.dump(self.messages, f)
+        if self.action_log:
+            with open(self._path("action_log.json"), "w", encoding="utf-8") as f:
+                json.dump(self.action_log, f)
         self.notes.save()
         u = self.usage
         runs.write_meta(MODE, self.name, model=self.cfg["model"], effort=self.effort, turns=self.turns,
                         status=self.status, scope=self.scope, level=self.level, disabled=self.disabled,
+                        templates=self.templates,
                         usage={"prompt": u.prompt, "cached": u.cached, "completion": u.completion,
                                "cost": u.cost, "calls": u.calls})
 
@@ -137,9 +170,10 @@ class Run:
             f.write(json.dumps(line) + "\n")
 
     def prepare_level(self):
-        """Single-level mode: read the level the game is in and write the prompt part that explains its objects.
-        Returns the kinds that have no entry yet in game/level_rules.py. Raises if the game is not in a puzzle level."""
-        from game.level_rules import rules_text
+        """Single-level mode: read the level the game is in and, in rulebook mode "prefilled", write the rulebook for
+        the objects in it. Returns the kinds that have no entry in the rulebook template. Raises if the game is not
+        in a puzzle level."""
+        from game.level_rules import rulebook_text
         game = self.session().game
         state = game.snapshot()
         if state["open_world"] or state["level"].startswith("menu_"):
@@ -147,11 +181,16 @@ class Run:
         self.level = state["level"]
         self.disabled = disabled_for(state["objects"])
         self.session().disabled = set(self.disabled)
-        self.rules, missing = rules_text(state)
-        with open(self._path("level_rules.md"), "w", encoding="utf-8") as f:
-            f.write(self.rules)
+        missing = []
+        if self.templates["rulebook"] == "prefilled":
+            self.rulebook, missing = rulebook_text(state, self.templates["rules"])
+        self.save_rulebook()
         self.save()
         return missing
+
+    def save_rulebook(self):
+        with open(self._path("rulebook.md"), "w", encoding="utf-8") as f:
+            f.write(self.rulebook)
 
     def check_level_left(self, result):
         """Single-level mode: the run is over once the game is no longer in the level."""
@@ -165,7 +204,7 @@ class Run:
         if self._session is None:
             from game.session import Session
             self._session = Session(os.path.join(self.dir, "state"), zero_origin=self.scope == "level",
-                                    disabled=self.disabled)
+                                    disabled=self.disabled, render_opts=self.pres.render_opts())
         return self._session
 
     def call_tool(self, name, args):
@@ -182,13 +221,29 @@ class Run:
                 result = self.notes.write(args.get("page", ""), args.get("text", ""))
             elif name == "note":
                 result = self.notes.append(args.get("page", ""), args.get("text", ""), self.turns)
+            elif name in ("rulebook_add", "rulebook_write") and self.templates["rulebook"] == "empty":
+                text = str(args.get("text", ""))
+                if name == "rulebook_add":
+                    self.rulebook = (self.rulebook.rstrip() + "\n" + text.strip()).strip()
+                else:
+                    self.rulebook = text.strip()
+                self.save_rulebook()
+                result = "rulebook updated" if self.rulebook else "rulebook cleared"
             else:
                 result = f"unknown tool {name}"
         except Exception as e:  # game closed or restarted: reconnect on the next call
             self._session = None
             result = f"error: {e} (is the game running and in a level?)"
-        self.log({"t": t0, "ms": round((time.time() - t0) * 1000), "tool": name, "args": args,
-                  "result": result})
+        entry = {"t": t0, "ms": round((time.time() - t0) * 1000), "tool": name, "args": args, "result": result}
+        if name in ("act", "look") and self._session is not None and isinstance(result, str):
+            original = self._session.original_text(result)
+            if original:
+                entry["screen"] = original    # the same report in the original view, for the live viewer's map
+        if name == "act" and self._session is not None:
+            # What each step actually did, for the benchmark's move counts: [action, steps taken, outcome]
+            entry["steps"] = [[a, self._session.steps_taken(n, lines), outcome]
+                              for a, n, lines, outcome in self._session.last_steps]
+        self.log(entry)
         if name in ("act", "look"):
             self.update_journal(result)
             if self.scope == "level" and isinstance(result, str):
@@ -251,38 +306,31 @@ class Run:
             with open(self._path("journal.md"), "w", encoding="utf-8") as f:
                 f.write(self.journal)
 
-    def add_floor_rows(self, result):
-        """Append the exact floor coordinates to a view (see game_state.floor_rows). It goes inside
-        the view block, so it is dropped together with the map when old observations are stubbed."""
-        idx = result.rfind("\nStatus:")
-        if idx < 0 or "Symbols:" not in result:
-            return result
-        try:
-            from game.game_state import floor_rows
-            rows = floor_rows(self.session().game.snapshot())
-        except Exception:
-            return result
-        return result[:idx].rstrip() + ("\n" + rows if rows else "") + "\n" + result[idx:]
+    def floor_rows_text(self):
+        """The exact floor coordinates of the current view (see game_state.floor_rows)."""
+        from game.game_state import floor_rows
+        return floor_rows(self.session().game.snapshot())
+
+    def log_steps(self):
+        """After an act: add one action-log line per step it took (shown when the actions template asks for it)."""
+        if self.pres.logging():
+            self.action_log += self.pres.log_entries(self.session().last_steps, len(self.action_log) + 1)
 
     # ---- context ----
     def tools(self):
+        tools = TOOLS + (RULEBOOK_TOOLS if self.templates["rulebook"] == "empty" else [])
         if self.scope != "level":
-            return TOOLS
+            return tools
         return [act_tool(self.disabled) if t["function"]["name"] == "act" else t
-                for t in TOOLS if t["function"]["name"] != "world_map"]
+                for t in tools if t["function"]["name"] != "world_map"]
 
     def build_messages(self):
-        system = self.system_prompt() + "\n\n# Your notes\n" + self.notes.render()
-        if self.journal:
-            system += ("\n\n# Journal (read-only: the game keeps every sign and recording you have read or heard)\n"
-                       + self.journal)
-        return [{"role": "system", "content": system}] + self.messages
+        return [{"role": "system", "content": self.system_prompt()}] + self.messages
 
     def system_prompt(self):
-        with open(os.path.join(HERE, "level_prompt.md" if self.scope == "level" else "prompt.md"),
-                  encoding="utf-8") as f:
-            return (f.read().replace("{rules}", self.rules or "(nothing described)")
-                    .replace("{actions}", action_list(self.disabled)))
+        """The whole system message: general prompt, rulebook section, notes, action log, journal."""
+        return prompting.system_text(self.scope, self.templates, action_list(self.disabled), self.rulebook,
+                                     self.notes.render(), self.journal, self.pres.log_text(self.action_log))
 
     def add(self, msg, **extra):
         self.messages.append(msg)
@@ -409,10 +457,13 @@ class Run:
                 args = json.loads(c.function.arguments or "{}")
             except ValueError:
                 args = {}
-            if c.function.name in ("write_note", "note"):
+            if c.function.name in ("write_note", "note", "rulebook_add", "rulebook_write"):
                 self.last_note_turn = self.turns
             self.set_phase(f"running {c.function.name} in the game")
-            out = compact_result(self.add_floor_rows(self.call_tool(c.function.name, args)))
+            out = self.call_tool(c.function.name, args)
+            if c.function.name == "act":
+                self.log_steps()
+            out = self.pres.finish(c.function.name, out, self.floor_rows_text)
             out += self.nudges(out)
             self.add({"role": "tool", "tool_call_id": c.id, "content": out}, name=c.function.name)
         self.last_line = (f"turn {self.turns}: prompt={u.prompt_tokens} "

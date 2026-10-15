@@ -1,0 +1,96 @@
+# Prefilled rulebook for the object-indexed format: one block per kind of object, rules numbered R1, R2, ...
+# Keys: "Kind", "Kind.Variant", "Hero.<model>". Each entry has properties (optional), rules ([id, text]) and questions.
+# Write only what is verified in the game.
+
+[entries]
+
+[entries."Rock"]
+rules = [
+  ["R1", "Push it by walking into it."],
+  ["R2", "It moves one tile if the tile behind it is free."],
+  ["R3", "It does not move if another rock is behind it."],
+  ["R4", "A rock pushed into water becomes floor you can walk on."],
+]
+
+[entries."Rock.Skipping Stone"]
+rules = [
+  ["R5", "Pushed like a rock, but it does not sink: pushed into water, it skips across the water in the direction it was pushed and settles on the first land tile it meets."],
+]
+
+[entries."Sign"]
+rules = [
+  ["R6", "Blocks you."],
+  ["R7", "To read it, stand next to it and face it; the text is shown once and kept in your journal."],
+]
+
+[entries."Voice_Log"]
+rules = [
+  ["R8", "A recording."],
+  ["R9", "Stand on its tile and activate to hear it; the text is kept in your journal."],
+]
+
+[entries."Mirror"]
+rules = [
+  ["R10", "Teleports you by reflection."],
+  ["R11", "It faces a diagonal direction (north-east, north-west, south-east or south-west), which the view reports, and it can only be used from the two sides it faces: a north-east mirror from the north and the east, a north-west one from the north and the west, a south-east one from the south and the east, a south-west one from the south and the west."],
+  ["R12", "To use it, stand exactly in line with it on one of those sides (same column or same row as the mirror), face it and activate."],
+  ["R13", "You land the same number of tiles away from the mirror as you stood, on its other side."],
+  ["R14", "For example, a north-east mirror: standing 3 tiles north of it puts you 3 tiles east of it, and standing 3 tiles east of it puts you 3 tiles north of it."],
+  ["R15", "It does not work if an object is on the line of the reflection before the tile where you would land."],
+  ["R16", "When you can use it, the game shows a ghost of where you would land and the view reports that tile."],
+  ["R17", "A mirror can be pushed like a rock."],
+]
+
+[entries."Door"]
+rules = [
+  ["R18", "A special tile you stand on; its state is active or inactive."],
+  ["R19", "The level ends when all of them are active."],
+]
+
+[entries."Npc"]
+rules = [
+  ["R20", "A person, there for the story only."],
+  ["R21", "It plays no part in the level's mechanics; you can ignore it."],
+]
+
+[entries."Hero.trader"]
+rules = [
+  ["R22", "Pushes objects, but only one at a time (a rock or a mirror, by walking into it), and can teleport through a mirror."],
+]
+
+[entries."Hero.warrior"]
+rules = [
+  ["R23", "Can push multiple objects at once, in a row, by walking into them."],
+]
+
+[entries."Hero.thief"]
+rules = [
+  ["R24", "Can only pull objects; it cannot push."],
+]
+
+[entries."Hero.wizard"]
+rules = [
+  ["R25", "Swaps places with a rock, a hero or a monster it faces."],
+  ["R26", "It needs a clear line of sight to it: for example, facing north with a rock in clear sight to the east, turning east swaps the wizard and the rock."],
+]
+
+[entries."Hero.priestess"]
+rules = [
+  ["R27", "Protects any other hero on an adjacent tile (left, right, up or down) from monsters' attacks."],
+]
+
+[entries."Freezer"]
+rules = [
+  ["R28", "Blocks you and encases whatever stands on its tile."],
+  ["R29", "It melts away once whatever it is unlocked by has been triggered; the view says what its arrow points to."],
+]
+
+[entries."Monster.Goblin"]
+rules = [
+  ["R30", "Attacks a hero or another monster standing on an adjacent tile (up, down, left or right)."],
+]
+
+[entries."Monster.Dragon"]
+rules = [
+  ["R31", "Breathes fire in a straight line in the direction it faces when a hero or a monster stands in front of it."],
+]

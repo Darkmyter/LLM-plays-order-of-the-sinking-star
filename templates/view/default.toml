@@ -1,0 +1,10 @@
+# World view: how the game world is shown in text. Keys left out take the defaults in api_player/presentation.py.
+name = "default"
+description = "The original view: a grid two characters per tile with fences drawn on the edges, the legend, the fences list, floor rows and the object list."
+
+# How to read it; it replaces {view_help} in the general prompt.
+help = '''
+- On the map every tile is two characters wide (a slot for a fence on its left, then the tile), which makes it easy to misread a column: use the `Floor tiles by row` list under the map for exact x ranges.
+- The legend under the map says what each symbol is. Only objects at your height are drawn.
+- `|` between two tiles and `-` between two rows are fences. A fence is not a tile: it sits on the edge between two tiles. The `Fences:` line lists them per tile (e.g. `(49,1) N` = a fence on the north edge of tile (49,1); letters combine, `(49,2) SW` = fences on both the south and the west edge, not a diagonal); trust it over the drawing.
+'''

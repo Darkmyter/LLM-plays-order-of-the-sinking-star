@@ -50,3 +50,13 @@ viewer_max_width = 2560  # native size, so the text stays readable
 viewer_crf = 18
 encoder = "libx264"      # or "h264_nvenc" to encode on the NVIDIA GPU (crf then means cq)
 preset = "veryfast"      # libx264 speed/size trade-off: ultrafast, veryfast, fast, medium
+
+[templates]
+# Which variant of each swappable part a new run uses (files in the repo's templates/ folder); the viewer's start
+# options override these per run.
+prompt_game = "default"     # templates/prompts/game/<name>.md: the general prompt for a whole-game run
+prompt_level = "default"    # templates/prompts/level/<name>.md: the general prompt for a single-level run
+rules = "free"              # templates/rules/<name>/: the rulebook format and its prompts
+rulebook_level = "prefilled"   # single-level runs: "prefilled" = the rulebook is given and read-only, "empty" = the player writes it
+view = "default"            # templates/view/<name>.toml: how the game world is shown in text
+actions = "default"         # templates/actions/<name>.toml: what an action returns (view or changes only, action log)
