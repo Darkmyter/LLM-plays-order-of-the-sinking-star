@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sinking Star Benchmark</title>
+<style>
+:root { --bg: #0f1216; --panel: #161b22; --panel2: #1c232c; --line: #2a333f; --text: #d7dde5; --muted: #8a96a6;
+  --accent: #f5c542; --good: #5fd38d; --bad: #ff6b6b; --info: #9db7ff; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; flex-wrap: wrap; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+a { color: var(--info); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.pill { padding: 2px 10px; border-radius: 99px; background: var(--panel2); color: var(--muted); font-size: 12px; border: 1px solid var(--line); white-space: nowrap; }
+.pill.good { border-color: var(--good); color: var(--good); }
+.pill.warn { border-color: var(--accent); color: var(--accent); }
+.pill.bad { border-color: var(--bad); color: var(--bad); }
+nav { display: flex; gap: 6px; padding: 10px 16px 0; }
+nav button { border-radius: 6px 6px 0 0; border-bottom: 0; }
+button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; }
+button:hover { border-color: var(--muted); }
+button.active { border-color: var(--accent); color: var(--accent); }
+button.primary { border-color: var(--good); color: var(--good); }
+button.danger { border-color: var(--bad); color: var(--bad); }
+button:disabled { opacity: .45; cursor: default; }
+input, select, textarea { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 13px; }
+textarea { width: 100%; font-family: ui-monospace, Consolas, monospace; }
+main { padding: 14px 16px 60px; max-width: 1400px; }
+section { display: none; }
+section.open { display: block; }
+h2 { margin: 18px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+h2:first-child { margin-top: 4px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.hint { color: var(--muted); font-size: 12px; }
+.warnbox { color: var(--bad); margin: 6px 0; min-height: 1em; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.best { color: var(--good); font-weight: 600; }
+td.dim { color: var(--muted); }
+tr.sel td { background: #f5c54214; }
+pre { background: #0b0e12; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 6px 0; overflow: auto; max-height: 420px; font: 12px/1.35 ui-monospace, Consolas, monospace; }
+.bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--good); vertical-align: middle; margin-left: 6px; }
+.progress { height: 10px; background: var(--panel2); border-radius: 5px; overflow: hidden; border: 1px solid var(--line); }
+.progress > div { height: 100%; background: var(--good); transition: width .4s; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.checks label { display: inline-flex; gap: 5px; align-items: center; }
+.variant { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chips button { border-radius: 99px; }
+</style></head>
+<body>
+<header>
+  <a href="/">◂ viewer</a>
+  <h1>Benchmark</h1>
+  <span class="pill" id="conn">connecting…</span>
+  <span class="pill" id="state"></span>
+</header>
+<nav id="tabs"></nav>
+<main>
+<section id="levels">
+  <h2>Captured levels</h2>
+  <div id="levellist"></div>
+  <h2>Add a level</h2>
+  <div class="card">
+    <div class="row">Put the game in the puzzle level, then
+      <input id="capname" placeholder="name (optional: the game's own level name)" size="36">
+      <button class="primary" id="capture">Capture current level</button></div>
+    <div class="warnbox" id="capwarn"></div>
+    <div class="hint">The level is read from the game and named after the game's own level name unless you type another. The game has to be in the level (not the open world); no player run may be active. Capturing a level again replaces it.</div>
+  </div>
+  <div id="leveldetail"></div>
+</section>
+
+<section id="experiments">
+  <h2>New experiment</h2>
+  <div class="card">
+    <div class="row"><b>Name</b> <input id="xname" placeholder="optional (automatic)" size="22">
+      <b>Runs per cell</b> <input id="xruns" type="number" min="1" value="3" style="width:64px">
+      <b>Max turns</b> <input id="xturns" type="number" min="5" value="80" style="width:70px">
+      <b>Max cost $</b> <input id="xcost" type="number" min="0.05" step="0.05" value="1" style="width:70px">
+      <b>Effort</b> <select id="xeffort"></select></div>
+    <div class="row"><b>Levels</b></div><div class="checks" id="xlevels"></div>
+    <div class="row"><b>Models</b> <span class="hint">one OpenRouter model id per line</span></div>
+    <textarea id="xmodels" rows="3" placeholder="deepseek/deepseek-v4.1-flash"></textarea>
+    <div class="chips" id="xsuggest"></div>
+    <div class="row"><b>Variants</b> <span class="hint">each row is one thing to compare; a left-out part uses the default</span></div>
+    <div id="xvariants"></div>
+    <div class="row"><button id="addvariant">+ variant</button>
+      <button id="eachpres" title="One variant per presentation template">+ one per presentation</button>
+      <button id="eachrules" title="One variant per rules template">+ one per rules</button></div>
+    <div class="row"><span id="xcount" class="hint"></span><span class="spacer" style="flex:1"></span>
+      <button class="primary" id="xsave">Save experiment</button></div>
+    <div class="warnbox" id="xwarn"></div>
+  </div>
+  <h2>Saved experiments</h2>
+  <div id="xlist"></div>
+</section>
+
+<section id="run">
+  <h2>Live progress</h2>
+  <div class="card" id="runcard"></div>
+</section>
+
+<section id="results">
+  <div class="row"><b>Experiment</b> <select id="rexp"></select>
+    <button id="rrefresh">Refresh</button>
+    <label class="hint"><input type="checkbox" id="rauto" checked> every 5 s</label></div>
+  <div id="rbody"></div>
+</section>
+</main>
+<script>
+const CONTROL = "http://127.0.0.1:8766";
+const $ = id => document.getElementById(id);
+const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// Reading and saving levels, solutions, experiments and results goes to the viewer server (this page's own origin);
+// running trials, stopping them and verifying a solution go to the control server, which owns the game's keys.
+const LOCAL = new Set(["/bench/levels", "/bench/experiments", "/bench/templates", "/bench/report", "/bench/trials", "/bench/level",
+  "/bench/capture", "/bench/solution", "/bench/experiment"]);
+const j = (path, body) => fetch((LOCAL.has(path.split("?")[0]) ? "" : CONTROL) + path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json());
+const money = c => c == null ? "–" : "$" + (c >= 1 ? c.toFixed(2) : c.toFixed(4));
+const num = v => v == null ? "–" : v >= 1000 ? Math.round(v).toLocaleString() : String(+v.toFixed(2));
+const mmss = s => s == null ? "–" : s >= 60 ? `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s` : `${Math.round(s)}s`;
+let tpl = {}, levels = [], experiments = [], defaults = {}, status = {}, tab = "levels", selLevel = "";
+
+// ---------- tabs ----------
+const TABS = [["levels", "Levels"], ["experiments", "Experiments"], ["run", "Run"], ["results", "Results"]];
+function setTab(t) {
+  tab = t; location.hash = t;
+  $("tabs").innerHTML = TABS.map(([k, l]) => `<button data-t="${k}" class="${k === t ? "active" : ""}">${l}</button>`).join("");
+  $("tabs").querySelectorAll("button").forEach(b => b.onclick = () => setTab(b.dataset.t));
+  for (const [k] of TABS) $(k).classList.toggle("open", k === t);
+  if (t === "results") loadResults();
+  if (t === "run") drawRun();
+}
+
+// ---------- levels ----------
+async function loadLevels() {
+  levels = await j("/bench/levels");
+  $("levellist").innerHTML = levels.length ? `<table><tr><th>Name</th><th>Game level</th><th>Objects</th><th>Solution</th><th></th></tr>` +
+    levels.map(l => `<tr class="${l.name === selLevel ? "sel" : ""}"><td><b>${esc(l.name)}</b></td><td class="dim">${esc(l.game_level)}</td>
+      <td class="dim">${esc(l.kinds.join(", "))}</td>
+      <td>${l.solution ? `${l.solution_steps} steps ` + (l.solution_verified ? '<span class="pill good">verified</span>' : '<span class="pill warn">not verified</span>') : '<span class="dim">none</span>'}</td>
+      <td><button data-l="${esc(l.name)}">Open</button></td></tr>`).join("") + "</table>"
+    : '<div class="hint">No levels yet. Capture one below.</div>';
+  $("levellist").querySelectorAll("button").forEach(b => b.onclick = () => { selLevel = b.dataset.l; loadLevels(); showLevel(); });
+  drawLevelChecks();
+}
+async function showLevel() {
+  if (!selLevel) return;
+  const d = await j("/bench/level?name=" + encodeURIComponent(selLevel));
+  if (d.error) { $("leveldetail").innerHTML = `<div class="warnbox">${esc(d.error)}</div>`; return; }
+  const s = d.solution;
+  $("leveldetail").innerHTML = `<h2>${esc(d.name)}</h2><div class="card">
+    <div class="row"><span class="hint">Game level <b>${esc(d.game_level)}</b> · captured ${new Date(d.captured * 1000).toLocaleString()}</span></div>
+    <pre>${esc(d.screen)}</pre>
+    <h2>Solution</h2>
+    ${s ? `<div class="row"><b>${s.steps}</b> steps (${s.moves} moves) · from ${esc(s.source)} · ${s.verified ? '<span class="pill good">verified by replay</span>' : '<span class="pill warn">not verified</span>'}</div>
+      <pre>${esc(s.commands)}</pre>` : '<div class="hint">No solution recorded. A known solution gives the move baseline and proves the level is solvable.</div>'}
+    <div class="row">From a solved run: <input id="solrun" placeholder="run name (a solved single-level run)" size="30">
+      <button id="solfromrun">Record</button></div>
+    <div class="row">Or paste moves: <input id="solmoves" placeholder="north 3, e2, activate" size="40"><button id="solfromtext">Record</button></div>
+    <div class="row"><button id="solverify" ${s ? "" : "disabled"}>Verify by replaying in the game</button>
+      <span class="hint">the game must be in this level; it is restarted first</span></div>
+    <div class="warnbox" id="solwarn"></div></div>`;
+  const rec = async body => { $("solwarn").textContent = "…"; const r = await j("/bench/solution", { level: selLevel, ...body });
+    if (r.error) $("solwarn").textContent = r.error; else { await loadLevels(); showLevel(); } };
+  $("solfromrun").onclick = () => rec({ run: $("solrun").value.trim() });
+  $("solfromtext").onclick = () => rec({ commands: $("solmoves").value });
+  $("solverify").onclick = async () => { $("solwarn").textContent = "replaying in the game…"; const r = await j("/bench/verify", { level: selLevel });
+    if (r.error) $("solwarn").textContent = r.error; else { await loadLevels(); showLevel(); } };
+}
+$("capture").onclick = async () => {
+  $("capwarn").textContent = "…";
+  const r = await j("/bench/capture", { name: $("capname").value.trim() });
+  if (r.error) { $("capwarn").textContent = r.error; return; }
+  $("capwarn").textContent = ""; $("capname").value = ""; selLevel = r.name; await loadLevels(); showLevel();
+};
+
+// ---------- experiments ----------
+function variantRow(v = {}) {
+  const row = document.createElement("div"); row.className = "variant";
+  const sel = (kind, key) => `<select data-k="${key}" title="${kind}"><option value="">${kind}: default</option>` +
+    (tpl[kind] || []).map(n => `<option value="${esc(n)}"${v[key] === n ? " selected" : ""}>${kind}: ${esc(n)}</option>`).join("") + "</select>";
+  row.innerHTML = `<input data-k="name" placeholder="name (optional)" size="16" value="${esc(v.name || "")}">` +
+    sel("prompts", "prompt") + sel("rules", "rules") + sel("view", "view") + sel("actions", "actions") + `<button title="remove">✕</button>`;
+  row.querySelector("button").onclick = () => { row.remove(); count(); };
+  row.querySelectorAll("select,input").forEach(e => e.onchange = count);
+  $("xvariants").appendChild(row); count();
+}
+const variants = () => [...$("xvariants").children].map(r => {
+  const v = {}; r.querySelectorAll("[data-k]").forEach(e => { if (e.value) v[e.dataset.k] = e.value; }); return v; });
+const models = () => $("xmodels").value.split(/\n+/).map(s => s.trim()).filter(Boolean);
+const pickedLevels = () => [...$("xlevels").querySelectorAll("input:checked")].map(e => e.value);
+function count() {
+  const n = pickedLevels().length * models().length * variants().length, r = +$("xruns").value || 1;
+  $("xcount").textContent = `${n} cells × ${r} runs = ${n * r} trials`;
+}
+function drawLevelChecks() {
+  const had = new Set(pickedLevels());
+  $("xlevels").innerHTML = levels.map(l => `<label><input type="checkbox" value="${esc(l.name)}" ${had.has(l.name) ? "checked" : ""}> ${esc(l.name)}</label>`).join("") || '<span class="hint">capture a level first</span>';
+  $("xlevels").querySelectorAll("input").forEach(e => e.onchange = count); count();
+}
+$("addvariant").onclick = () => variantRow();
+$("eachpres").onclick = () => (tpl.view || []).forEach(n => variantRow({ name: n, view: n }));
+$("eachrules").onclick = () => (tpl.rules || []).forEach(n => variantRow({ name: "rules-" + n, rules: n }));
+["xmodels", "xruns"].forEach(id => $(id).oninput = count);
+$("xsave").onclick = async () => {
+  const exp = { name: $("xname").value.trim(), levels: pickedLevels(), models: models(), variants: variants(), runs: +$("xruns").value || 1,
+    limits: { max_turns: +$("xturns").value, max_cost_usd: +$("xcost").value }, effort: $("xeffort").value };
+  const r = await j("/bench/experiment", exp);
+  if (r.error) { $("xwarn").textContent = r.error; return; }
+  $("xwarn").textContent = ""; await loadExperiments();
+};
+async function loadExperiments() {
+  experiments = await j("/bench/experiments");
+  $("xlist").innerHTML = experiments.length ? `<table><tr><th>Name</th><th>Levels</th><th>Models</th><th>Variants</th><th class="num">Runs</th><th></th></tr>` +
+    experiments.map(e => `<tr><td><b>${esc(e.name)}</b></td><td>${esc(e.levels.join(", "))}</td><td class="dim">${esc(e.models.map(m => m.split("/").pop()).join(", "))}</td>
+      <td class="dim">${esc(e.variants.map(v => v.name || Object.values(v).join("+") || "default").join(", "))}</td><td class="num">${e.runs}</td>
+      <td><button class="primary" data-run="${esc(e.name)}">Run</button> <button data-res="${esc(e.name)}">Results</button> <button data-edit="${esc(e.name)}">Copy to form</button></td></tr>`).join("") + "</table>"
+    : '<div class="hint">None yet.</div>';
+  $("xlist").querySelectorAll("[data-run]").forEach(b => b.onclick = async () => {
+    const r = await j("/bench/start", { experiment: b.dataset.run }); if (r.error) return alert(r.error); setTab("run"); });
+  $("xlist").querySelectorAll("[data-res]").forEach(b => b.onclick = () => { $("rexp").value = b.dataset.res; setTab("results"); });
+  $("xlist").querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
+    const e = experiments.find(x => x.name === b.dataset.edit);
+    $("xname").value = e.name + "-2"; $("xruns").value = e.runs; $("xmodels").value = e.models.join("\n");
+    $("xturns").value = (e.limits || {}).max_turns || 80; $("xcost").value = (e.limits || {}).max_cost_usd || 1; $("xeffort").value = e.effort || "";
+    $("xvariants").innerHTML = ""; e.variants.forEach(variantRow);
+    $("xlevels").querySelectorAll("input").forEach(i => i.checked = e.levels.includes(i.value)); count(); scrollTo(0, 0); });
+  $("rexp").innerHTML = experiments.map(e => `<option>${esc(e.name)}</option>`).join("");
+}
+
+// ---------- run ----------
+function drawRun() {
+  const s = status || {};
+  if (!s.experiment) { $("runcard").innerHTML = '<div class="hint">No experiment has been started in this session. Start one from the Experiments tab.</div>'; return; }
+  const c = s.current, pct = s.total ? 100 * s.done / s.total : 0;
+  const running = ["running", "waiting"].includes(s.state);
+  $("runcard").innerHTML = `<div class="row"><b>${esc(s.experiment)}</b> <span class="pill ${s.state === "waiting" ? "warn" : running ? "good" : ""}">${esc(s.state)}</span>
+      <span class="hint">${s.done} of ${s.total} trials done</span><span style="flex:1"></span>
+      ${running ? '<button class="danger" id="xstop">Stop</button>' : `<button data-res>Results</button>`}</div>
+    <div class="progress"><div style="width:${pct}%"></div></div>
+    ${s.message ? `<div class="${s.state === "error" ? "warnbox" : "hint"}" style="margin-top:8px">${esc(s.message)}</div>` : ""}
+    ${c ? `<div class="row" style="margin-top:10px">Now: trial <b>#${c.index}</b> · ${esc(c.level)} · ${esc(c.model)} · variant <b>${esc(c.variant)}</b> · run ${c.run}
+      · ${c.turns} turns · ${money(c.cost)} ${c.run_name ? `· <a href="/?mode=api&run=${encodeURIComponent(c.run_name)}" target="_blank">watch it in the viewer ↗</a>` : ""}</div>` : ""}`;
+  if ($("xstop")) $("xstop").onclick = () => j("/bench/stop", {});
+  const rb = $("runcard").querySelector("[data-res]"); if (rb) rb.onclick = () => { $("rexp").value = s.experiment; setTab("results"); };
+}
+async function pollStatus() {
+  try { status = await j("/bench/status"); $("conn").textContent = "control server connected"; $("conn").className = "pill good"; }
+  catch (e) { $("conn").textContent = "control server not running: needed to run trials (uv run python -m api_player.control)"; $("conn").className = "pill warn"; return; }
+  const run = ["running", "waiting"].includes(status.state);
+  $("state").textContent = status.experiment ? `${status.experiment}: ${status.state} ${status.done}/${status.total}` : "";
+  $("state").className = "pill " + (status.state === "waiting" ? "warn" : run ? "good" : "");
+  if (tab === "run") drawRun();
+}
+
+// ---------- results ----------
+// Per group of the same level and model, the best value of each measure is green.
+const COLS = [["moves", "Moves", "low"], ["turns", "Turns", "low"], ["tokens", "Tokens", "low"], ["cost_per_solve", "Cost / solve", "low"], ["seconds", "Time", "low"], ["blocked", "Blocked", "low"]];
+const fmtCol = { cost_per_solve: money, seconds: mmss };
+async function loadResults() {
+  const name = $("rexp").value;
+  if (!name) { $("rbody").innerHTML = '<div class="hint">No experiments yet.</div>'; return; }
+  const [rep, trials] = await Promise.all([j("/bench/report?experiment=" + encodeURIComponent(name)), j("/bench/trials?experiment=" + encodeURIComponent(name))]);
+  if (rep.error) { $("rbody").innerHTML = `<div class="warnbox">${esc(rep.error)}</div>`; return; }
+  const best = {};  // group -> col -> best
+  for (const c of rep.cells) for (const [k, , dir] of COLS) {
+    const g = c.level + "|" + c.model + "|" + k, v = c[k];
+    if (v != null && (best[g] == null || (dir === "low" ? v < best[g] : v > best[g]))) best[g] = v;
+  }
+  const bestRate = {}; for (const c of rep.cells) { const g = c.level + "|" + c.model; bestRate[g] = Math.max(bestRate[g] ?? 0, c.solve_rate); }
+  const multi = rep.cells.length > 1;
+  let h = `<h2>Per level, model and variant <span class="hint">· medians over solved trials · green = best among variants of the same level and model</span></h2>
+    <table><tr><th>Level</th><th>Model</th><th>Variant</th><th class="num">Solved</th>${COLS.map(([, l]) => `<th class="num">${l}</th>`).join("")}<th class="num">Known</th><th class="num">Spent</th></tr>`;
+  for (const c of rep.cells) {
+    const g = c.level + "|" + c.model, w = 70 * c.solve_rate;
+    h += `<tr><td>${esc(c.level)}</td><td class="dim">${esc(c.model.split("/").pop())}</td><td><b>${esc(c.variant)}</b></td>
+      <td class="num ${multi && c.solve_rate === bestRate[g] && c.solve_rate > 0 ? "best" : ""}">${c.solved}/${c.n}<span class="bar" style="width:${w}px"></span></td>` +
+      COLS.map(([k]) => `<td class="num ${multi && c[k] != null && c[k] === best[g + "|" + k] ? "best" : ""}">${(fmtCol[k] || num)(c[k])}</td>`).join("") +
+      `<td class="num dim">${c.known_moves ?? "–"}</td><td class="num dim">${money(c.cost_total)}</td></tr>`;
+  }
+  h += "</table>";
+  if (rep.variants.length > 1) {
+    h += `<h2>Per variant, across all levels and models</h2><table><tr><th>Variant</th><th class="num">Solved</th><th class="num">Moves</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Cost / solve</th></tr>` +
+      rep.variants.map(v => `<tr><td><b>${esc(v.variant)}</b></td><td class="num">${v.solved}/${v.n}<span class="bar" style="width:${70 * v.solve_rate}px"></span></td>
+        <td class="num">${num(v.moves)}</td><td class="num">${num(v.turns)}</td><td class="num">${num(v.tokens)}</td><td class="num">${money(v.cost_per_solve)}</td></tr>`).join("") + "</table>";
+  }
+  h += `<h2>Trials (${trials.length})</h2><table><tr><th class="num">#</th><th>Level</th><th>Model</th><th>Variant</th><th>Result</th><th class="num">Moves</th><th class="num">Undo</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Cost</th><th>Run</th></tr>` +
+    trials.map(t => `<tr><td class="num">${t.index}</td><td>${esc(t.level)}</td><td class="dim">${esc(t.model.split("/").pop())}</td><td>${esc(t.variant)}</td>
+      <td>${t.solved ? '<span class="pill good">solved</span>' : `<span class="pill bad">${esc(t.status.replace("stopped: ", "") || "failed")}</span>`}</td>
+      <td class="num">${t.moves}</td><td class="num">${t.undos}</td><td class="num">${t.turns}</td><td class="num">${num(t.tokens)}</td><td class="num">${money(t.cost)}</td>
+      <td><a href="/?mode=api&run=${encodeURIComponent(t.run_name)}" target="_blank">${esc(t.run_name)} ↗</a></td></tr>`).join("") + "</table>";
+  $("rbody").innerHTML = h;
+}
+$("rexp").onchange = loadResults;
+$("rrefresh").onclick = loadResults;
+setInterval(() => { if (tab === "results" && $("rauto").checked) loadResults(); }, 5000);
+
+// ---------- start ----------
+(async () => {
+  setTab((location.hash || "#levels").slice(1) in { levels: 1, experiments: 1, run: 1, results: 1 } ? location.hash.slice(1) : "levels");
+  try { defaults = await j("/defaults"); } catch (e) { defaults = {}; }   // control server: model suggestions only
+  try {
+    const d = await j("/bench/templates"), names = k => (d[k] || []).map(x => x.name);
+    tpl = { prompts: names("prompts/level"), rules: names("rules"), view: names("view"), actions: names("actions") };
+    $("xeffort").innerHTML = '<option value="">default</option>' + (defaults.efforts || []).map(e => `<option>${e}</option>`).join("");
+    $("xsuggest").innerHTML = (defaults.suggested || []).map(m => `<button data-m="${esc(m)}">${esc(m)}</button>`).join("");
+    $("xsuggest").querySelectorAll("button").forEach(b => b.onclick = () => { const cur = models(); if (!cur.includes(b.dataset.m)) $("xmodels").value = cur.concat(b.dataset.m).join("\n"); count(); });
+    variantRow({ name: "default" });
+    await Promise.all([loadLevels(), loadExperiments()]);
+  } catch (e) { $("conn").textContent = "viewer server not reachable: " + e; $("conn").className = "pill bad"; }
+  pollStatus(); setInterval(pollStatus, 2000);
+})();
+</script>
+</body></html>

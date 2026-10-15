@@ -1,0 +1,438 @@
+{
+ "name": "heroes1_1",
+ "game_level": "heroes1_1",
+ "captured": 1792061156.5613961,
+ "kinds": [
+  "Door",
+  "Hero",
+  "Rock",
+  "Hero.warrior"
+ ],
+ "screen": "Puzzle level 'heroes1_1'\nSymbols: @=you  D=Goal Pad  R=Rock\nMap (top-down; north=up, east=right).\nCoordinates: the row number (y) is at both ends of each row; the column number (x) is written top-to-bottom above and below each column.\n  . floor at your level\n  # wall: blocks you\n  (space) a drop, water or nothing\n  @ you\n  D Goal Pad: you can stand on it\n  R Rock: you cannot walk onto it\n   x                      1 1 1\n   x  0 1 2 3 4 5 6 7 8 9 0 1 2\n   4    # # # # # # # # # # #    4\n   3  # . . . # . . . R . . . #  3\n   2  # . @ . # . . . # . D . #  2\n   1  # . . . R . . . # . . . #  1\n   0    # # # # # # # # # # #    0\n   x                      1 1 1\n   x  0 1 2 3 4 5 6 7 8 9 0 1 2\n\nObjects at your height (x, y, height relative to you):\n  @ Hero 1 at (2,2,+0) Warrior, (you, selected), facing east\n  D Goal Pad 1 at (10,2,+0) state=inactive\n  R Rock 1 at (4,1,+0) \n  R Rock 2 at (8,3,+0) ",
+ "state": {
+  "manager": "0x1d41c750080",
+  "level": "heroes1_1",
+  "open_world": false,
+  "layer": 0,
+  "window": null,
+  "solid": [
+   [
+    0,
+    1,
+    0
+   ],
+   [
+    0,
+    2,
+    0
+   ],
+   [
+    0,
+    3,
+    0
+   ],
+   [
+    1,
+    0,
+    0
+   ],
+   [
+    1,
+    1,
+    -1
+   ],
+   [
+    1,
+    2,
+    -1
+   ],
+   [
+    1,
+    3,
+    -1
+   ],
+   [
+    1,
+    4,
+    0
+   ],
+   [
+    2,
+    0,
+    0
+   ],
+   [
+    2,
+    1,
+    -1
+   ],
+   [
+    2,
+    2,
+    -1
+   ],
+   [
+    2,
+    3,
+    -1
+   ],
+   [
+    2,
+    4,
+    0
+   ],
+   [
+    3,
+    0,
+    0
+   ],
+   [
+    3,
+    1,
+    -1
+   ],
+   [
+    3,
+    2,
+    -1
+   ],
+   [
+    3,
+    3,
+    -1
+   ],
+   [
+    3,
+    4,
+    0
+   ],
+   [
+    4,
+    0,
+    0
+   ],
+   [
+    4,
+    1,
+    -1
+   ],
+   [
+    4,
+    2,
+    -1
+   ],
+   [
+    4,
+    2,
+    0
+   ],
+   [
+    4,
+    2,
+    1
+   ],
+   [
+    4,
+    3,
+    -1
+   ],
+   [
+    4,
+    3,
+    0
+   ],
+   [
+    4,
+    3,
+    1
+   ],
+   [
+    4,
+    4,
+    0
+   ],
+   [
+    5,
+    0,
+    0
+   ],
+   [
+    5,
+    1,
+    -1
+   ],
+   [
+    5,
+    2,
+    -1
+   ],
+   [
+    5,
+    3,
+    -1
+   ],
+   [
+    5,
+    4,
+    0
+   ],
+   [
+    6,
+    0,
+    0
+   ],
+   [
+    6,
+    1,
+    -1
+   ],
+   [
+    6,
+    2,
+    -1
+   ],
+   [
+    6,
+    3,
+    -1
+   ],
+   [
+    6,
+    4,
+    0
+   ],
+   [
+    7,
+    0,
+    0
+   ],
+   [
+    7,
+    1,
+    -1
+   ],
+   [
+    7,
+    2,
+    -1
+   ],
+   [
+    7,
+    3,
+    -1
+   ],
+   [
+    7,
+    4,
+    0
+   ],
+   [
+    8,
+    0,
+    0
+   ],
+   [
+    8,
+    1,
+    -1
+   ],
+   [
+    8,
+    1,
+    0
+   ],
+   [
+    8,
+    2,
+    -1
+   ],
+   [
+    8,
+    2,
+    0
+   ],
+   [
+    8,
+    3,
+    -1
+   ],
+   [
+    8,
+    4,
+    0
+   ],
+   [
+    9,
+    0,
+    0
+   ],
+   [
+    9,
+    1,
+    -1
+   ],
+   [
+    9,
+    2,
+    -1
+   ],
+   [
+    9,
+    3,
+    -1
+   ],
+   [
+    9,
+    4,
+    0
+   ],
+   [
+    10,
+    0,
+    0
+   ],
+   [
+    10,
+    1,
+    -1
+   ],
+   [
+    10,
+    2,
+    -1
+   ],
+   [
+    10,
+    3,
+    -1
+   ],
+   [
+    10,
+    4,
+    0
+   ],
+   [
+    11,
+    0,
+    0
+   ],
+   [
+    11,
+    1,
+    -1
+   ],
+   [
+    11,
+    2,
+    -1
+   ],
+   [
+    11,
+    3,
+    -1
+   ],
+   [
+    11,
+    4,
+    0
+   ],
+   [
+    12,
+    1,
+    0
+   ],
+   [
+    12,
+    2,
+    0
+   ],
+   [
+    12,
+    3,
+    0
+   ]
+  ],
+  "objects": [
+   {
+    "kind": "Guy",
+    "addr": 2014181031576,
+    "id": 1048837,
+    "pos": [
+     2.0,
+     2.0,
+     0.0
+    ],
+    "settled": true,
+    "selected": true,
+    "dead": false,
+    "falling": false,
+    "on_exit": false,
+    "facing": "east",
+    "model": "warrior",
+    "turn_order": 202,
+    "barks": {
+     "initial_bark": "heroes_mouse",
+     "win_bark": ""
+    },
+    "num": 1
+   },
+   {
+    "kind": "Door",
+    "addr": 2017778313368,
+    "id": 1,
+    "pos": [
+     10.0,
+     2.0,
+     0.0
+    ],
+    "settled": true,
+    "selected": false,
+    "dead": false,
+    "falling": false,
+    "on_exit": false,
+    "props": {
+     "state": "inactive"
+    },
+    "barks": {},
+    "display": "Goal Pad"
+   },
+   {
+    "kind": "Rock",
+    "addr": 2014178771096,
+    "id": 16777222,
+    "pos": [
+     4.0,
+     1.0,
+     0.0
+    ],
+    "settled": true,
+    "selected": false,
+    "dead": false,
+    "falling": false,
+    "on_exit": false,
+    "barks": {}
+   },
+   {
+    "kind": "Rock",
+    "addr": 2014178772624,
+    "id": 16777223,
+    "pos": [
+     8.0,
+     3.0,
+     0.0
+    ],
+    "settled": true,
+    "selected": false,
+    "dead": false,
+    "falling": false,
+    "on_exit": false,
+    "barks": {}
+   }
+  ],
+  "water": [],
+  "origin": [
+   0,
+   0
+  ]
+ }
+}

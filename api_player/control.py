@@ -4,11 +4,13 @@
 
 GET  /runs                 -> list of runs (name, model, turns, cost, status, updated)
 GET  /status               -> the active run's live status
-POST /new     {name?, model?, effort?, scope?}   create a run and start it; scope "level" = solve the level
+GET  /templates            -> the variants available per kind, with descriptions
+POST /new     {name?, model?, effort?, scope?, templates?: {prompt?, rules?, rulebook?, view?, actions?}}   create a run and start it; scope "level" = solve the level
                                 the game is in now (prompt written from the objects in it), then stop
 POST /resume  {name}            load an existing run and start it
 POST /pause | /unpause | /stop
 POST /config  {model?, effort?} change the model / reasoning effort for the active run (next turn)
+The benchmark routes (/bench/...) are in bench/api.py.
 Local only.
 """
 import json
@@ -21,7 +23,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api_player.llm import load_config  # noqa: E402
 from api_player.player import EFFORTS, MODE, Run  # noqa: E402
-from game import runs  # noqa: E402
+from bench import api as bench_api  # noqa: E402
+from api_player import prompting  # noqa: E402
+from game import runs, templates  # noqa: E402
+from urllib.parse import parse_qs, urlparse  # noqa: E402
 
 PORT = 8766
 active = None
@@ -38,10 +43,12 @@ def status():
             "recording": active.recording_status()}
 
 
-def start_run(name, create, model=None, effort=None, scope="game"):
+def start_run(name, create, model=None, effort=None, scope="game", template_names=None):
     global active
     if active is not None and active.thread and active.thread.is_alive():
         return {"error": f"run '{active.name}' is still running; stop it first"}
+    if bench_api.running():
+        return {"error": "a benchmark experiment is running; stop it first"}
     cfg = load_config()
     if model:
         cfg["model"] = model
@@ -50,7 +57,11 @@ def start_run(name, create, model=None, effort=None, scope="game"):
         return {"error": f"run '{name}' already exists"}
     if not create and not runs.exists(MODE, name):
         return {"error": f"no run named '{name}'"}
-    run = Run(name, cfg, create=create, scope=scope if create else "game")
+    if create:
+        bad = prompting.problems(prompting.resolve_templates(cfg, scope, template_names), scope)
+        if bad:
+            return {"error": bad}
+    run = Run(name, cfg, create=create, scope=scope if create else "game", template_names=template_names)
     missing = []
     if create and scope == "level":
         try:
@@ -88,6 +99,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        url = urlparse(self.path)
+        if url.path.startswith("/bench/"):
+            try:
+                out = bench_api.get(url.path, parse_qs(url.query))
+            except (FileNotFoundError, ValueError) as e:
+                out = {"error": str(e)}
+            return self.reply(out if out is not None else {"error": "not found"}, 200 if out is not None else 404)
         if self.path == "/runs":
             self.reply(runs.list_runs(MODE))
         elif self.path == "/defaults":
@@ -96,6 +114,8 @@ class Handler(BaseHTTPRequestHandler):
                         "efforts": list(EFFORTS), "effort": (cfg.get("reasoning") or {}).get("effort", "")})
         elif self.path == "/status":
             self.reply(status())
+        elif self.path == "/templates":
+            self.reply(templates.describe())
         else:
             self.reply({"error": "not found"}, 404)
 
@@ -106,9 +126,12 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             body = {}
         p = self.path
+        if p.startswith("/bench/"):
+            out = bench_api.post(p, body, lambda: bool(active is not None and active.thread and active.thread.is_alive()))
+            return self.reply(out if out is not None else {"error": "not found"}, 200 if out is not None else 404)
         if p == "/new":
             self.reply(start_run(body.get("name"), True, body.get("model"), body.get("effort"),
-                                  "level" if body.get("scope") == "level" else "game"))
+                                  "level" if body.get("scope") == "level" else "game", body.get("templates")))
         elif p == "/resume":
             self.reply(start_run(body.get("name"), False, body.get("model"), body.get("effort")))
         elif active is None:

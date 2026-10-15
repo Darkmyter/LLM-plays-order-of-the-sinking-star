@@ -1,0 +1,42 @@
+{
+ "name": "test",
+ "levels": [
+  "heroes1_1"
+ ],
+ "models": [
+  "deepseek/deepseek-v4.1-flash"
+ ],
+ "variants": [
+  {
+   "name": "default",
+   "prompt": "level"
+  },
+  {
+   "name": "bare",
+   "presentation": "bare"
+  },
+  {
+   "name": "changes_only",
+   "presentation": "changes_only"
+  },
+  {
+   "name": "changes_only_log",
+   "presentation": "changes_only_log"
+  },
+  {
+   "name": "default",
+   "presentation": "default"
+  },
+  {
+   "name": "with_log",
+   "presentation": "with_log"
+  }
+ ],
+ "runs": 3,
+ "limits": {
+  "max_turns": 80,
+  "max_cost_usd": 1
+ },
+ "effort": "",
+ "created": 1792061425.8128414
+}
